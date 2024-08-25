@@ -1,4 +1,4 @@
-from dbt.adapters.spark.connections import SparkConnectionMethod, SparkCredentials
+from dbt.adapters.watsonx_spark.connections import SparkConnectionMethod, SparkCredentials
 
 
 def test_credentials_server_side_parameters_keys_and_values_are_strings() -> None:

@@ -28,7 +28,7 @@ with open(os.path.join(this_directory, "README.md"), "r", encoding="utf8") as f:
 
 # get this package's version from dbt/adapters/<name>/__version__.py
 def _get_plugin_version_dict():
-    _version_path = os.path.join(this_directory, "dbt", "adapters", "spark", "__version__.py")
+    _version_path = os.path.join(this_directory, "dbt", "adapters", "watsonx_spark", "__version__.py")
     _semver = r"""(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"""
     _pre = r"""((?P<prekind>a|b|rc)(?P<pre>\d+))?"""
     _build = r"""(\+build[0-9]+)?"""
@@ -40,17 +40,9 @@ def _get_plugin_version_dict():
         return match.groupdict()
 
 
-package_name = "dbt-spark"
-package_version = "1.9.0a1"
-description = """The Apache Spark adapter plugin for dbt"""
-
-odbc_extras = ["pyodbc~=4.0.39"]
-pyhive_extras = [
-    "PyHive[hive_pure_sasl]~=0.7.0",
-    "thrift>=0.11.0,<0.17.0",
-]
-session_extras = ["pyspark>=3.0.0,<4.0.0"]
-all_extras = odbc_extras + pyhive_extras + session_extras
+package_name = "dbt-watsonx-spark"
+package_version = "0.0.1"
+description = """The Watsonx.data spark plugin for dbt"""
 
 setup(
     name=package_name,
@@ -58,24 +50,18 @@ setup(
     description=description,
     long_description=long_description,
     long_description_content_type="text/markdown",
-    author="dbt Labs",
-    author_email="info@dbtlabs.com",
-    url="https://github.com/dbt-labs/dbt-spark",
+    author="IBM watsonx.data",
     packages=find_namespace_packages(include=["dbt", "dbt.*"]),
     include_package_data=True,
     install_requires=[
         "sqlparams>=3.0.0",
         "dbt-common>=1.0.4,<2.0",
         "dbt-adapters>=1.1.1,<2.0",
-        # add dbt-core to ensure backwards compatibility of installation, this is not a functional dependency
         "dbt-core>=1.8.0",
+        "PyHive[hive_pure_sasl]~=0.7.0",
+        "thrift>=0.11.0,<0.17.0",
+        "requests>=2.32.2"
     ],
-    extras_require={
-        "ODBC": odbc_extras,
-        "PyHive": pyhive_extras,
-        "session": session_extras,
-        "all": all_extras,
-    },
     zip_safe=False,
     classifiers=[
         "Development Status :: 5 - Production/Stable",

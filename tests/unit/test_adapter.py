@@ -6,7 +6,7 @@ import dbt.flags as flags
 from dbt.exceptions import DbtRuntimeError
 from agate import Row
 from pyhive import hive
-from dbt.adapters.spark import SparkAdapter, SparkRelation
+from dbt.adapters.watsonx_spark import SparkAdapter, SparkRelation
 from .utils import config_from_parts_or_dicts
 
 
@@ -32,7 +32,7 @@ class TestSparkAdapter(unittest.TestCase):
             {
                 "outputs": {
                     "test": {
-                        "type": "spark",
+                        "type": "watsonx_spark",
                         "method": "http",
                         "schema": "analytics",
                         "host": "myorg.sparkhost.com",
@@ -53,7 +53,7 @@ class TestSparkAdapter(unittest.TestCase):
             {
                 "outputs": {
                     "test": {
-                        "type": "spark",
+                        "type": "watsonx_spark",
                         "method": "thrift",
                         "schema": "analytics",
                         "host": "myorg.sparkhost.com",
@@ -71,7 +71,7 @@ class TestSparkAdapter(unittest.TestCase):
             {
                 "outputs": {
                     "test": {
-                        "type": "spark",
+                        "type": "watsonx_spark",
                         "method": "thrift",
                         "schema": "analytics",
                         "host": "myorg.sparkhost.com",
@@ -91,7 +91,7 @@ class TestSparkAdapter(unittest.TestCase):
             {
                 "outputs": {
                     "test": {
-                        "type": "spark",
+                        "type": "watsonx_spark",
                         "method": "thrift",
                         "use_ssl": True,
                         "schema": "analytics",
@@ -110,7 +110,7 @@ class TestSparkAdapter(unittest.TestCase):
             {
                 "outputs": {
                     "test": {
-                        "type": "spark",
+                        "type": "watsonx_spark",
                         "method": "odbc",
                         "schema": "analytics",
                         "host": "myorg.sparkhost.com",
@@ -131,7 +131,7 @@ class TestSparkAdapter(unittest.TestCase):
             {
                 "outputs": {
                     "test": {
-                        "type": "spark",
+                        "type": "watsonx_spark",
                         "method": "odbc",
                         "schema": "analytics",
                         "host": "myorg.sparkhost.com",
@@ -501,7 +501,7 @@ class TestSparkAdapter(unittest.TestCase):
         profile = {
             "outputs": {
                 "test": {
-                    "type": "spark",
+                    "type": "watsonx_spark",
                     "method": "http",
                     # not allowed
                     "database": "analytics2",
@@ -522,7 +522,7 @@ class TestSparkAdapter(unittest.TestCase):
         profile = {
             "outputs": {
                 "test": {
-                    "type": "spark",
+                    "type": "watsonx_spark",
                     "method": "odbc",
                     "schema": "analytics",
                     "host": "myorg.sparkhost.com",
