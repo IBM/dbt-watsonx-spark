@@ -26,7 +26,7 @@ RUN apt-get update \
 ENV PYTHONIOENCODING=utf-8
 ENV LANG=C.UTF-8
 
-RUN python -m pip install --upgrade "pip==24.0" "setuptools==69.2.0" "wheel==0.43.0" --no-cache-dir
+RUN python -m pip install --upgrade "pip==24.0" "setuptools==70.0.0" "wheel==0.43.0" --no-cache-dir
 
 
 FROM base as dbt-spark
