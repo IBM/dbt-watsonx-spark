@@ -65,7 +65,6 @@ setup(
     zip_safe=False,
     classifiers=[
         "Development Status :: 5 - Production/Stable",
-        "License :: IBM License",
         "Operating System :: Microsoft :: Windows",
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX :: Linux",
