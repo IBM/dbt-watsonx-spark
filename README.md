@@ -5,7 +5,7 @@ dbt is the T in ELT. Organize, cleanse, denormalize, filter, rename, and pre-agg
 ## dbt-watsonx-spark
 
 The `dbt-watsonx-spark` package contains all of the code enabling dbt to work with IBM Spark on watsonx.data. Read the official documentation for using watsonx.data with dbt-watsonx-spark -
- - Documetnation for IBM Cloud and SaaS offerrings 
+ - Documentation for IBM Cloud and SaaS offerrings 
  - Documentation for IBM watsonx.data software
 
 ## Getting started
@@ -15,9 +15,9 @@ The `dbt-watsonx-spark` package contains all of the code enabling dbt to work wi
 
 ### Installation
 
-To install the `dbt-watsonx-presto` plugin, use pip:
+To install the `dbt-watsonx-spark` plugin, use pip:
 ```
-$ pip install dbt-watsonx-presto
+$ pip install dbt-watsonx-spark
 ```
 
 ### Configuration
