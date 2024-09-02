@@ -59,7 +59,7 @@ setup(
         "dbt-adapters>=1.1.1,<2.0",
         "dbt-core>=1.8.0",
         "PyHive[hive_pure_sasl]~=0.7.0",
-        "thrift>=0.11.0,<0.17.0",
+        "thrift>=0.20.0",
         "requests>=2.32.2"
     ],
     zip_safe=False,

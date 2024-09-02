@@ -1,88 +1,61 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/dbt-labs/dbt/ec7dee39f793aa4f7dd3dae37282cc87664813e4/etc/dbt-logo-full.svg" alt="dbt logo" width="500"/>
-</p>
-<p align="center">
-  <a href="https://github.com/dbt-labs/dbt-spark/actions/workflows/main.yml">
-    <img src="https://github.com/dbt-labs/dbt-spark/actions/workflows/main.yml/badge.svg?event=push" alt="Unit Tests Badge"/>
-  </a>
-</p>
-
 **[dbt](https://www.getdbt.com/)** enables data analysts and engineers to transform their data using the same practices that software engineers use to build applications.
 
 dbt is the T in ELT. Organize, cleanse, denormalize, filter, rename, and pre-aggregate the raw data in your warehouse so that it's ready for analysis.
 
-## dbt-spark
+## dbt-watsonx-spark
 
-The `dbt-spark` package contains all of the code enabling dbt to work with Apache Spark and Databricks. For
-more information, consult [the docs](https://docs.getdbt.com/docs/profile-spark).
+The `dbt-watsonx-spark` package contains all of the code enabling dbt to work with IBM Spark on watsonx.data. Read the official documentation for using watsonx.data with dbt-watsonx-spark -
+ - Documetnation for IBM Cloud and SaaS offerrings 
+ - Documentation for IBM watsonx.data software
 
 ## Getting started
 
 - [Install dbt](https://docs.getdbt.com/docs/installation)
 - Read the [introduction](https://docs.getdbt.com/docs/introduction/) and [viewpoint](https://docs.getdbt.com/docs/about/viewpoint/)
 
-## Running locally
-A `docker-compose` environment starts a Spark Thrift server and a Postgres database as a Hive Metastore backend.
-Note: dbt-spark now supports Spark 3.3.2.
+### Installation
 
-The following command starts two docker containers:
-
-```sh
-docker-compose up -d
+To install the `dbt-watsonx-presto` plugin, use pip:
+```
+$ pip install dbt-watsonx-presto
 ```
 
-It will take a bit of time for the instance to start, you can check the logs of the two containers.
-If the instance doesn't start correctly, try the complete reset command listed below and then try start again.
+### Configuration
 
-Create a profile like this one:
+Ensure you have started Spark SQL server from watsonx.data. Create an entry in your ~/.dbt/profiles.yml file using the following options:
+- You can view connection details by clicking on the three-dot menu for SQL server.
+- You can construct and configure the profile using the below template -
 
-```yaml
-spark_testing:
-  target: local
+```
+dbt_wxd:
+
+  target: dev
   outputs:
-    local:
-      type: spark
-      method: thrift
-      host: 127.0.0.1
-      port: 10000
-      user: dbt
-      schema: analytics
-      connect_retries: 5
-      connect_timeout: 60
-      retry_all: true
+    dev:
+      type: watsonx_spark
+      method: "http"
+      
+      # number of threads for DBT operations, refer: https://docs.getdbt.com/docs/running-a-dbt-project/using-threads
+      threads: 1
+
+      # value of 'schema' must be one of the schema defined in Data Manager in watsonx.data
+      schema: '<wxd_schema>'
+      
+      # Hostname of your watsonx.data console (ex: us-south.lakehouse.cloud.ibm.com)
+      host: https://<your-host>.com
+
+      # Uri of your Spark SQL server running on watsonx.data
+      uri: "/lakehouse/api/v2/spark_engines/<spark_engine_id>/sql_servers/<server_id>/connect/cliservice"
+
+      auth:
+        # In case of SaaS, set it as CRN of watsonx.data service
+        # In case of Software, set it as instance id of watsonx.data
+        instance: "<CRN/InstanceId>"
+        
+        # In case of SaaS, set it as your email id
+        # In case of Software, set it as your username
+        user: "<user@example.com/username>"
+
+        # This must be your API Key
+        apikey: "<apikey>"
 ```
-
-Connecting to the local spark instance:
-
-* The Spark UI should be available at [http://localhost:4040/sqlserver/](http://localhost:4040/sqlserver/)
-* The endpoint for SQL-based testing is at `http://localhost:10000` and can be referenced with the Hive or Spark JDBC drivers using connection string `jdbc:hive2://localhost:10000` and default credentials `dbt`:`dbt`
-
-Note that the Hive metastore data is persisted under `./.hive-metastore/`, and the Spark-produced data under `./.spark-warehouse/`. To completely reset you environment run the following:
-
-```sh
-docker-compose down
-rm -rf ./.hive-metastore/
-rm -rf ./.spark-warehouse/
-```
-
-### Reporting bugs and contributing code
-
--   Want to report a bug or request a feature? Let us know on [Slack](http://slack.getdbt.com/), or open [an issue](https://github.com/fishtown-analytics/dbt-spark/issues/new).
-
-## Code of Conduct
-
-Everyone interacting in the dbt project's codebases, issue trackers, chat rooms, and mailing lists is expected to follow the [PyPA Code of Conduct](https://www.pypa.io/en/latest/code-of-conduct/).
-
-## Join the dbt Community
-
-- Be part of the conversation in the [dbt Community Slack](http://community.getdbt.com/)
-- Read more on the [dbt Community Discourse](https://discourse.getdbt.com)
-
-## Reporting bugs and contributing code
-
-- Want to report a bug or request a feature? Let us know on [Slack](http://community.getdbt.com/), or open [an issue](https://github.com/dbt-labs/dbt-spark/issues/new)
-- Want to help us build dbt? Check out the [Contributing Guide](https://github.com/dbt-labs/dbt/blob/HEAD/CONTRIBUTING.md)
-
-## Code of Conduct
-
-Everyone interacting in the dbt project's codebases, issue trackers, chat rooms, and mailing lists is expected to follow the [dbt Code of Conduct](https://community.getdbt.com/code-of-conduct).
