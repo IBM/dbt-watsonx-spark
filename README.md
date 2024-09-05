@@ -46,6 +46,9 @@ dbt_wxd:
 
       # Uri of your Spark SQL server running on watsonx.data
       uri: "/lakehouse/api/v2/spark_engines/<spark_engine_id>/sql_servers/<server_id>/connect/cliservice"
+      
+      # Optional: Disable SSL verification
+      use_ssl: false
 
       auth:
         # In case of SaaS, set it as CRN of watsonx.data service
@@ -58,4 +61,5 @@ dbt_wxd:
 
         # This must be your API Key
         apikey: "<apikey>"
+        
 ```

@@ -442,6 +442,12 @@ class SparkConnectionManager(SQLConnectionManager):
 
                     transport = THttpClient.THttpClient(conn_url)
 
+                    if not creds.use_ssl:
+                        ctx = ssl.create_default_context()
+                        ctx.check_hostname = False
+                        ctx.verify_mode = ssl.CERT_NONE
+                        transport = THttpClient.THttpClient(conn_url,ssl_context=ctx)
+
                     raw_token = "token:{}".format(creds.token).encode()
                     token = base64.standard_b64encode(raw_token).decode()
                     transport.setCustomHeaders({"Authorization": "Basic {}".format(token)})
