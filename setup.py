@@ -41,7 +41,7 @@ def _get_plugin_version_dict():
 
 
 package_name = "dbt-watsonx-spark"
-package_version = "0.0.4"
+package_version = "0.0.5"
 description = """IBM watsonx.data spark plugin for dbt"""
 
 setup(
@@ -73,5 +73,5 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
     ],
-    python_requires=">=3.8",
+    python_requires=">=3.8,<3.12",
 )
