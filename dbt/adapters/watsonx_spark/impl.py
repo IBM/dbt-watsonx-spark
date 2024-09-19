@@ -29,9 +29,12 @@ import agate
 from dbt.adapters.base import AdapterConfig, PythonJobHelper
 from dbt.adapters.base.impl import catch_as_completed, ConstraintSupport
 from dbt.adapters.sql import SQLAdapter
-from dbt.adapters.watsonx_spark import SparkConnectionManager
-from dbt.adapters.watsonx_spark import SparkRelation
-from dbt.adapters.watsonx_spark import SparkColumn
+from dbt.adapters.watsonx_spark import (
+    SparkConnectionManager,
+    SparkRelation,
+    SparkColumn,
+    SparkCredentials
+)
 from dbt.adapters.watsonx_spark.python_submissions import (
     JobClusterPythonJobHelper,
     AllPurposeClusterPythonJobHelper,
@@ -53,6 +56,7 @@ LIST_SCHEMAS_MACRO_NAME = "list_schemas"
 LIST_RELATIONS_MACRO_NAME = "list_relations_without_caching"
 LIST_RELATIONS_SHOW_TABLES_MACRO_NAME = "list_relations_show_tables_without_caching"
 DESCRIBE_TABLE_EXTENDED_MACRO_NAME = "describe_table_extended_without_caching"
+CREATE_SCHEMA_MACRO_NAME= "create_schema"
 
 KEY_TABLE_OWNER = "Owner"
 KEY_TABLE_STATISTICS = "Statistics"
@@ -327,6 +331,32 @@ class SparkAdapter(SQLAdapter):
         columns = [x for x in columns if x.name not in self.HUDI_METADATA_COLUMNS]
         return columns
 
+    def create_schema(self, relation: SparkRelation) -> None:
+        relation = relation.without_identifier()
+        cred = self.connections.get_thread_connection().credentials
+        location_root = self.get_location(cred)
+        if location_root is not None:
+            relation.set_location(location_root)
+        kwargs = {
+            "relation": relation
+        }
+        self.execute_macro(CREATE_SCHEMA_MACRO_NAME, kwargs=kwargs)
+        self.commit_if_has_connection()
+    
+    def get_location(self, credentials: SparkCredentials) -> str:
+        if credentials.location_root is not None and credentials.location_root != "":
+            location_root = credentials.location_root
+            regex=re.compile("^'.*'$")
+            if(self.check_regex(regex,location_root)):
+                return location_root
+            return f"'{location_root}'"
+        return None
+
+    def check_regex(self, regex: any, string: str) -> bool:
+        if re.match(regex, string):
+            return True
+        return False
+        
     def parse_columns_from_information(self, relation: BaseRelation) -> List[SparkColumn]:
         if hasattr(relation, "information"):
             information = relation.information or ""

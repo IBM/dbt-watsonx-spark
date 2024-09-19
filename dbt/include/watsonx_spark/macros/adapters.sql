@@ -264,7 +264,11 @@
 
 {% macro watsonx_spark__create_schema(relation) -%}
   {%- call statement('create_schema') -%}
-    create schema if not exists {{relation}}
+    {%- if relation.location_root is not none %}
+      create schema if not exists {{relation}} location {{relation.location_root}}
+    {% else %}
+      create schema if not exists {{relation}}
+    {% endif %}
   {% endcall %}
 {% endmacro %}
 
@@ -294,8 +298,12 @@
 
 {% macro watsonx_spark__list_relations_without_caching(relation) %}
   {% call statement('list_relations_without_caching', fetch_result=True) -%}
-    show table extended in {{ relation.schema }} like '*'
-  {% endcall %}
+  {%- if config.get("file_format") == "1" %}
+      show table extended in {{ relation.schema }} like '*'
+  {% else %}
+      show tables in {{ relation.schema }} like '*'
+  {% endif %}
+{% endcall %}
 
   {% do return(load_result('list_relations_without_caching').table) %}
 {% endmacro %}

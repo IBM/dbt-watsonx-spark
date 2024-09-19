@@ -35,6 +35,7 @@ class SparkRelation(BaseRelation):
     is_iceberg: Optional[bool] = None
     # TODO: make this a dict everywhere
     information: Optional[str] = None
+    location_root: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.database != self.schema and self.database:
@@ -47,3 +48,6 @@ class SparkRelation(BaseRelation):
                 "include, but only one can be set"
             )
         return super().render()
+
+    def set_location(self, location: str) -> None:
+        object.__setattr__(self, 'location_root', location)
