@@ -1,4 +1,5 @@
-{% materialization table, adapter = 'spark', supported_languages=['sql', 'python'] %}
+{% materialization table, adapter = 'watsonx_spark', supported_languages=['sql', 'python'] %}
+  {%- set config = set_configuration(config) -%}
   {%- set language = model['language'] -%}
   {%- set identifier = model['alias'] -%}
   {%- set grant_config = config.get('grants') -%}
@@ -8,7 +9,6 @@
                                                 schema=schema,
                                                 database=database,
                                                 type='table') -%}
-
   {{ run_hooks(pre_hooks) }}
 
   -- setup: if the target relation already exists, drop it
@@ -31,7 +31,7 @@
 
   -- build model
   {%- call statement('main', language=language) -%}
-    {{ create_table_as(False, target_relation, compiled_code, language) }}
+    {{ create_table_as(False, target_relation, compiled_code , config ,language) }}
   {%- endcall -%}
 
   {% set should_revoke = should_revoke(old_relation, full_refresh_mode=True) %}

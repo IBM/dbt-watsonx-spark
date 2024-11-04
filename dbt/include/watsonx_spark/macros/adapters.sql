@@ -142,43 +142,56 @@
       {{ compiled_code }}
 {%- endmacro -%}
 
+{% macro set_configuration(config) -%}
+  {{return (adapter.set_configuration(config))}}
+{%- endmacro %}
 
-{%- macro watsonx_spark__create_table_as(temporary, relation, compiled_code, language='sql') -%}
-  {%- if language == 'sql' -%}
-    {%- if temporary -%}
-      {{ create_temporary_view(relation, compiled_code) }}
-    {%- else -%}
-      {% if config.get('file_format', validator=validation.any[basestring]) in ['delta', 'iceberg'] %}
-        create or replace table {{ relation }}
-      {% else %}
-        create table {{ relation }}
-      {% endif %}
-      {%- set contract_config = config.get('contract') -%}
-      {%- if contract_config.enforced -%}
-        {{ get_assert_columns_equivalent(compiled_code) }}
-        {%- set compiled_code = get_select_subquery(compiled_code) %}
-      {% endif %}
-      {{ file_format_clause() }}
-      {{ options_clause() }}
-      {{ tblproperties_clause() }}
-      {{ partition_cols(label="partitioned by") }}
-      {{ clustered_cols(label="clustered by") }}
-      {{ location_clause() }}
-      {{ comment_clause() }}
+{% macro create_table_as(temporary, relation, compiled_code, config ,language='sql') -%}
+  {# backward compatibility for create_table_as that does not support language #}
+  {% if language == "sql" %}
+    {{ adapter.dispatch('create_table_as', 'dbt')(temporary, relation, compiled_code, config)}}
+  {% else %}
+    {{ adapter.dispatch('create_table_as', 'dbt')(temporary, relation, compiled_code, config , language) }}
+  {% endif %}
+{%- endmacro %}
 
-      as
-      {{ compiled_code }}
+
+{%- macro watsonx_spark__create_table_as(temporary, relation, compiled_code, config ,language='sql') -%}
+    {%- if language == 'sql' -%}
+      {%- if temporary -%}
+        {{ create_temporary_view(relation, compiled_code) }}
+      {%- else -%}
+        {% if config.get('file_format', validator=validation.any[basestring]) in ['delta', 'iceberg'] %}
+          create or replace table {{ relation }}
+        {% else %}
+          create table {{ relation }}
+        {% endif %}
+        {%- set contract_config = config.get('contract') -%}
+        {%- if contract_config.enforced -%}
+          {{ get_assert_columns_equivalent(compiled_code) }}
+          {%- set compiled_code = get_select_subquery(compiled_code) %}
+        {% endif %}
+        {{ file_format_clause() }}
+        {{ options_clause() }}
+        {{ tblproperties_clause() }}
+        {{ partition_cols(label="partitioned by") }}
+        {{ clustered_cols(label="clustered by") }}
+        {{ location_clause() }}
+        {{ comment_clause() }}
+
+        as
+        {{ compiled_code }}
+      {%- endif -%}
+    {%- elif language == 'python' -%}
+      {#--
+      N.B. Python models _can_ write to temp views HOWEVER they use a different session
+      and have already expired by the time they need to be used (I.E. in merges for incremental models)
+
+      TODO: Deep dive into spark sessions to see if we can reuse a single session for an entire
+      dbt invocation.
+      --#}
+      {{ py_write_table(compiled_code=compiled_code, target_relation=relation) }}
     {%- endif -%}
-  {%- elif language == 'python' -%}
-    {#--
-    N.B. Python models _can_ write to temp views HOWEVER they use a different session
-    and have already expired by the time they need to be used (I.E. in merges for incremental models)
-
-    TODO: Deep dive into spark sessions to see if we can reuse a single session for an entire
-    dbt invocation.
-     --#}
-    {{ py_write_table(compiled_code=compiled_code, target_relation=relation) }}
-  {%- endif -%}
 {%- endmacro -%}
 
 
@@ -264,8 +277,9 @@
 
 {% macro watsonx_spark__create_schema(relation) -%}
   {%- call statement('create_schema') -%}
-    {%- if relation.location_root is not none %}
-      create schema if not exists {{relation}} location {{relation.location_root}}
+    {%- set locationPath = adapter.set_location_root(relation , config) -%}
+    {%- if locationPath is not none %}
+        create schema if not exists {{relation}} location {{locationPath}}
     {% else %}
       create schema if not exists {{relation}}
     {% endif %}

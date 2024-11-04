@@ -36,6 +36,7 @@ class SparkRelation(BaseRelation):
     # TODO: make this a dict everywhere
     information: Optional[str] = None
     location_root: Optional[str] = None
+    catalog: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.database != self.schema and self.database:

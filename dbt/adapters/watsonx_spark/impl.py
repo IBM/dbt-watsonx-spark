@@ -43,6 +43,9 @@ from dbt.adapters.base import BaseRelation
 from dbt.adapters.contracts.relation import RelationType, RelationConfig
 from dbt_common.clients.agate_helper import DEFAULT_TYPE_TESTER
 from dbt_common.contracts.constraints import ConstraintType
+from dbt.adapters.base import BaseRelation , available
+from dbt.contracts.graph.nodes import ModelConfig
+from dbt_common.contracts.config.base import BaseConfig
 
 logger = AdapterLogger("Spark")
 packages = ["pyhive.hive", "thrift.transport", "thrift.protocol"]
@@ -57,6 +60,7 @@ LIST_RELATIONS_MACRO_NAME = "list_relations_without_caching"
 LIST_RELATIONS_SHOW_TABLES_MACRO_NAME = "list_relations_show_tables_without_caching"
 DESCRIBE_TABLE_EXTENDED_MACRO_NAME = "describe_table_extended_without_caching"
 CREATE_SCHEMA_MACRO_NAME= "create_schema"
+CREATE_TABLE_MACRO_NAME= "create_table_as"
 
 KEY_TABLE_OWNER = "Owner"
 KEY_TABLE_STATISTICS = "Statistics"
@@ -77,6 +81,7 @@ class SparkConfig(AdapterConfig):
     buckets: Optional[int] = None
     options: Optional[Dict[str, str]] = None
     merge_update_columns: Optional[str] = None
+    catalog: Optional[str] = None
 
 
 class SparkAdapter(SQLAdapter):
@@ -199,7 +204,7 @@ class SparkAdapter(SQLAdapter):
         self,
         row_list: agate.Table,
         relation_info_func: Callable[[agate.Row], RelationInfo],
-    ) -> List[BaseRelation]:
+    ) -> List[SparkRelation]:
         """Aggregate relations with format metadata included."""
         relations = []
         for row in row_list:
@@ -333,30 +338,80 @@ class SparkAdapter(SQLAdapter):
 
     def create_schema(self, relation: SparkRelation) -> None:
         relation = relation.without_identifier()
-        cred = self.connections.get_thread_connection().credentials
-        location_root = self.get_location(cred)
-        if location_root is not None:
-            relation.set_location(location_root)
         kwargs = {
             "relation": relation
         }
         self.execute_macro(CREATE_SCHEMA_MACRO_NAME, kwargs=kwargs)
         self.commit_if_has_connection()
+
+    @available.parse_none
+    def set_location_root(self, relation: SparkRelation , config: SparkConfig) -> str:
+        profile_cred: SparkCredentials = self.connections.get_thread_connection().credentials
+        profile_location_root = self.validate_location(profile_cred.location_root)
+        model_location_root = self.validate_location(config.get("location_root"))
+
+        if model_location_root is not None: #Model location root 
+            relation.set_location(model_location_root)
+            return model_location_root
+
+        if profile_location_root is not None: #Profile location root
+            relation.set_location(profile_location_root)
+            return profile_location_root
+        
+        if self.ConnectionManager.get_location_from_api(profile_cred) is not None:
+            location_root,file_format = self.get_location_format_api(profile_cred,config)
+            relation.set_location(location_root)
+            return location_root
+        return None
     
-    def get_location(self, credentials: SparkCredentials) -> str:
-        if credentials.location_root is not None and credentials.location_root != "":
-            location_root = credentials.location_root
-            regex=re.compile("^'.*'$")
-            if(self.check_regex(regex,location_root)):
+    def get_location_format_api(self, profile_cred: SparkCredentials , config: SparkConfig):
+        catalog = self.set_catalog(config)
+        bucket, file_format = self.ConnectionManager.get_location_from_api(profile_cred)
+        location_root = self.build_location(bucket, catalog, profile_cred.schema)
+        return location_root,file_format
+
+    def validate_location(self, location_root: str) -> str:
+        if location_root is not None and location_root != "":
+            regex = re.compile("^'.*'$")
+            if (self.check_regex(regex, location_root)):
                 return location_root
             return f"'{location_root}'"
+        return None
+
+    def build_location(self, bucket: str, catalog: str, schema: str) -> None:
+        if bucket is not None and catalog is not None and schema is not None:
+            if '.' in schema:
+                schema = schema.split('.')[1]
+            location_root = f"'s3a://{bucket}/{catalog}/{schema}'"
+            return location_root
         return None
 
     def check_regex(self, regex: any, string: str) -> bool:
         if re.match(regex, string):
             return True
         return False
-        
+    
+    @available.parse_none
+    def set_configuration(self, config: SparkConfig) -> None:
+        profile_cred: SparkCredentials = self.connections.get_thread_connection().credentials
+        configuration: ModelConfig = config.__dict__['model'].config
+        location_root,file_format = self.get_location_format_api(profile_cred,config)
+        configuration.__setitem__("location_root",location_root.replace("'", ""))
+        if configuration.get("file_format") is None:  configuration.__setitem__("file_format",file_format)
+        if configuration.get("catalog") is None:  configuration.__setitem__("catalog",self.set_catalog(config))
+        config.__dict__['model'].config = configuration
+        return config
+
+    @available.parse_none
+    def set_catalog(self, config: SparkConfig) -> str:
+        cred: SparkCredentials = self.connections.get_thread_connection().credentials
+        if config.get("catalog") is not None and config.get("catalog") != "":
+            return config.get("catalog")
+
+        if cred.catalog is not None and cred.catalog != "":
+            return cred.catalog
+        return ''
+
     def parse_columns_from_information(self, relation: BaseRelation) -> List[SparkColumn]:
         if hasattr(relation, "information"):
             information = relation.information or ""

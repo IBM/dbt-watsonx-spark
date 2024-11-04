@@ -86,6 +86,7 @@ class SparkCredentials(Credentials):
     server_side_parameters: Dict[str, str] = field(default_factory=dict)
     retry_all: bool = False
     location_root: Optional[str] = None
+    catalog: Optional[str] = None
 
     @classmethod
     def __pre_deserialize__(cls, data: Any) -> Any:
@@ -105,6 +106,8 @@ class SparkCredentials(Credentials):
             raise DbtRuntimeError("Must specify `host` in profile")
         if self.schema is None:
             raise DbtRuntimeError("Must specify `schema` in profile")
+        if self.catalog is None:
+            raise DbtRuntimeError("Must specify `catalog` in profile")       
 
         # spark classifies database and schema as the same thing
         if self.database is not None and self.database != self.schema:
@@ -169,6 +172,15 @@ class SparkCredentials(Credentials):
                 str(key): str(value) for key, value in self.auth.items()
             }
 
+        authenticator = get_authenticator(self.auth,self.host)
+
+        if self.token == None or self.token == "":
+            self.token = authenticator.get_token()
+
+        bucket, file_format = authenticator.get_catlog_details(self.catalog)  
+        if(file_format == "iceberg" or file_format == "delta"):
+            self.schema = self.catalog + "." + self.schema
+        
     @property
     def type(self) -> str:
         return "watsonx_spark"
@@ -394,6 +406,13 @@ class SparkConnectionManager(SQLConnectionManager):
 
     def rollback(self, *args: Any, **kwargs: Any) -> None:
         logger.debug("NotImplemented: rollback")
+
+    def get_location_from_api(credentials: SparkCredentials) -> None:
+        if credentials.catalog is not None:
+            authenticator = get_authenticator(credentials.auth,credentials.host)
+            bucket, file_format = authenticator.get_catlog_details(credentials.catalog)
+            return bucket, file_format
+        return None
 
     @classmethod
     def validate_creds(cls, creds: Any, required: Iterable[str]) -> None:

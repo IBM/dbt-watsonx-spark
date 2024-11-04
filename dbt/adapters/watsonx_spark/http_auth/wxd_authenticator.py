@@ -1,5 +1,4 @@
 from dbt.adapters.watsonx_spark.http_auth.authenticator import Authenticator
-from datetime import datetime, timedelta
 from thrift.transport import THttpClient
 from venv import logger
 import requests
@@ -44,6 +43,11 @@ class WatsonxData(Authenticator):
     def Authenticate(self, transport: THttpClient.THttpClient):
         transport.setCustomHeaders(self._get_headers())
         return transport
+
+    def get_token(self):
+        wxd_env = self._get_environment()
+        token_obj = self._get_token(wxd_env)
+        return str(token_obj.token)
 
     def _get_cpd_token(self, cpd_env):
         cpd_url = f"{self.host}{cpd_env.authEndpoint}"
@@ -90,3 +94,23 @@ class WatsonxData(Authenticator):
             return self._get_cpd_token(wxd_env)
         elif wxd_env.envType == SAAS:
             return self._get_sass_token(wxd_env)
+        
+    def get_catlog_details(self, catalog_name):
+        wxd_env = self._get_environment()
+        url = f"{self.host}/lakehouse/api/v2/catalogs/{catalog_name}"
+        result = self._get_token(wxd_env)  
+        header = {
+          'Authorization': "Bearer {}".format(result.token),
+          'accept': 'application/json',
+          f"{wxd_env.authInstanceHeaderKey}": f"{self.instance}"
+        }   
+        try:
+            response = requests.get(url=url, headers=header, verify=False)
+            if response.status_code != 200:
+                logger.error(
+                    f"Failed to retrieve get catlog details. Error: Received status code {response.status_code}, {response.content}")
+                return
+            bucket, file_format = response.json().get("associated_buckets")[0], response.json().get("catalog_type")
+            return bucket, file_format
+        except Exception as err:
+            logger.error(f"Exception caught: {err}")

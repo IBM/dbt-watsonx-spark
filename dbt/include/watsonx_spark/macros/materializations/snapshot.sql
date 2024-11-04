@@ -114,7 +114,7 @@
   {% endif %}
 
   {% if not adapter.check_schema_exists(model.database, model.schema) %}
-    {% do create_schema(model.schema) %}
+    {% do create_schema(model.schema , config) %}
   {% endif %}
 
   {%- if not target_relation.is_table -%}
@@ -131,7 +131,7 @@
   {% if not target_relation_exists %}
 
       {% set build_sql = build_snapshot_table(strategy, model['compiled_code']) %}
-      {% set final_sql = create_table_as(False, target_relation, build_sql) %}
+      {% set final_sql = create_table_as(False, target_relation, build_sql , config) %}
 
   {% else %}
 

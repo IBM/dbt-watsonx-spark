@@ -1,5 +1,6 @@
 {% materialization incremental, adapter='watsonx_spark', supported_languages=['sql', 'python'] -%}
   {#-- Validate early so we don't run SQL if the file_format + strategy combo is invalid --#}
+  {%- set config = set_configuration(config) -%}
   {%- set raw_file_format = config.get('file_format', default='parquet') -%}
   {%- set raw_strategy = config.get('incremental_strategy') or 'append' -%}
   {%- set grant_config = config.get('grants') -%}
@@ -17,7 +18,6 @@
   {%- set target_relation = this -%}
   {%- set existing_relation = load_relation(this) -%}
   {% set tmp_relation = this.incorporate(path = {"identifier": this.identifier ~ '__dbt_tmp'}) -%}
-
   {#-- for SQL model we will create temp view that doesn't have database and schema --#}
   {%- if language == 'sql'-%}
     {%- set tmp_relation = tmp_relation.include(database=false, schema=false) -%}
@@ -37,7 +37,7 @@
   {%- if existing_relation is none -%}
     {#-- Relation must be created --#}
     {%- call statement('main', language=language) -%}
-      {{ create_table_as(False, target_relation, compiled_code, language) }}
+      {{ create_table_as(False, target_relation, compiled_code, config ,language) }}
     {%- endcall -%}
     {% do persist_constraints(target_relation, model) %}
   {%- elif existing_relation.is_view or should_full_refresh() -%}
@@ -47,13 +47,13 @@
       {% do adapter.drop_relation(existing_relation) %}
     {% endif %}
     {%- call statement('main', language=language) -%}
-      {{ create_table_as(False, target_relation, compiled_code, language) }}
+      {{ create_table_as(False, target_relation, compiled_code, config ,language) }}
     {%- endcall -%}
     {% do persist_constraints(target_relation, model) %}
   {%- else -%}
     {#-- Relation must be merged --#}
     {%- call statement('create_tmp_relation', language=language) -%}
-      {{ create_table_as(True, tmp_relation, compiled_code, language) }}
+      {{ create_table_as(True, tmp_relation, compiled_code, config ,language) }}
     {%- endcall -%}
     {%- do process_schema_changes(on_schema_change, tmp_relation, existing_relation) -%}
     {%- call statement('main') -%}
