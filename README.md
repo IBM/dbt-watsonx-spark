@@ -4,9 +4,9 @@ dbt is the T in ELT. Organize, cleanse, denormalize, filter, rename, and pre-agg
 
 ## dbt-watsonx-spark
 
-The `dbt-watsonx-spark` package contains all of the code enabling dbt to work with IBM Spark on watsonx.data. Read the official documentation for using watsonx.data with dbt-watsonx-spark -
- - Documentation for IBM Cloud and SaaS offerrings 
- - Documentation for IBM watsonx.data software
+The `dbt-watsonx-spark` package contains all of the code enabling dbt to work with IBM Spark on watsonx.data. Read the official documentation for using watsonx.data with dbt-watsonx-spark 
+ - [Documentation for IBM Cloud and SaaS offerings](https://cloud.ibm.com/docs/watsonxdata?topic=watsonxdata-dbt_watsonx_spark_inst)
+ - [Documentation for IBM watsonx.data software](https://www.ibm.com/docs/en/watsonx/watsonxdata/2.0.x?topic=integration-data-build-tool-adapter-spark)
 
 ## Getting started
 
@@ -22,9 +22,10 @@ $ pip install dbt-watsonx-spark
 
 ### Configuration
 
-Ensure you have started Spark SQL server from watsonx.data. Create an entry in your ~/.dbt/profiles.yml file using the following options:
-- You can view connection details by clicking on the three-dot menu for SQL server.
-- You can construct and configure the profile using the below template -
+Ensure you have started a query server from watsonx.data. Create an entry in your ~/.dbt/profiles.yml file using the following options:
+- You can view connection details by clicking on the three-dot menu for query server.
+- You can construct and configure the profile using the below template
+- You can copy your connection information details also from going to **Configuration** tab -> **Connection Information** -> **Data Build Tool (DBT)**
 
 ```
 dbt_wxd:
@@ -38,14 +39,17 @@ dbt_wxd:
       # number of threads for DBT operations, refer: https://docs.getdbt.com/docs/running-a-dbt-project/using-threads
       threads: 1
 
-      # value of 'schema' must be one of the schema defined in Data Manager in watsonx.data
+      # value of 'schema' for an existing schema in Data Manager in watsonx.data or to create a new one in watsonx.data
       schema: '<wxd_schema>'
       
       # Hostname of your watsonx.data console (ex: us-south.lakehouse.cloud.ibm.com)
       host: https://<your-host>.com
 
-      # Uri of your Spark SQL server running on watsonx.data
+      # URI of your query server running on watsonx.data
       uri: "/lakehouse/api/v2/spark_engines/<spark_engine_id>/sql_servers/<server_id>/connect/cliservice"
+      
+      # Catalog linked to your Spark engine within the query server
+      catalog: "<wxd_catalog>"
       
       # Optional: Disable SSL verification
       use_ssl: false
