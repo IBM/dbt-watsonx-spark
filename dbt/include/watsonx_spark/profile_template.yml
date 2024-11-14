@@ -1,5 +1,10 @@
 fixed:
   type: watsonx_spark
+  method: http
+  auth:
+    instance: "<watsonx.data-instance>"
+    user: "<watsonx.data-username>"
+    apikey: "<watsonx.data-apikey>"
 prompts:
   host:
     hint: us-south.lakehouse.cloud.ibm.com
@@ -7,3 +12,5 @@ prompts:
     hint: /lakehouse/api/v2/spark_engines/<engine-id</sql_servers/<sql-server-id>/connect/cliservice
   schema:
     hint: default schema that DBT will run on
+  catalog:
+    hint: default catalog that DBT will run on

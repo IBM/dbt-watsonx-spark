@@ -54,7 +54,7 @@
 {% macro watsonx_spark__create_csv_table(model, agate_table) %}
   {%- set column_override = model['config'].get('column_types', {}) -%}
   {%- set quote_seed_column = model['config'].get('quote_columns', None) -%}
-
+  {%- set config = set_configuration(config) -%}
   {% set sql %}
       create table {{ this.render() }} (
         {%- for col_name in agate_table.column_names -%}

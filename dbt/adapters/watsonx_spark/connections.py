@@ -177,9 +177,11 @@ class SparkCredentials(Credentials):
         if self.token == None or self.token == "":
             self.token = authenticator.get_token()
 
-        bucket, file_format = authenticator.get_catlog_details(self.catalog)  
-        if(file_format == "iceberg" or file_format == "delta"):
+        bucket, file_format = authenticator.get_catlog_details(self.catalog) 
+        if(file_format == "iceberg"): 
             self.schema = self.catalog + "." + self.schema
+        if(file_format == "delta" or file_format == "hudi"):
+            self.schema =  "spark_catalog." + self.schema
         
     @property
     def type(self) -> str:
