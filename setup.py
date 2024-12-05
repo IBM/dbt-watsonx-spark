@@ -41,7 +41,7 @@ def _get_plugin_version_dict():
 
 
 package_name = "dbt-watsonx-spark"
-package_version = "0.0.7"
+package_version = "0.0.8"
 description = """IBM watsonx.data spark plugin for dbt"""
 
 setup(
@@ -51,6 +51,7 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="IBM watsonx.data",
+    url="https://github.com/IBM/dbt-watsonx-spark",
     packages=find_namespace_packages(include=["dbt", "dbt.*"]),
     include_package_data=True,
     install_requires=[
@@ -65,10 +66,10 @@ setup(
     zip_safe=False,
     classifiers=[
         "Development Status :: 5 - Production/Stable",
+        "License :: OSI Approved :: Apache Software License",
         "Operating System :: Microsoft :: Windows",
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX :: Linux",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
