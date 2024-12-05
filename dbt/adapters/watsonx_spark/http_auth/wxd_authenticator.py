@@ -2,6 +2,10 @@ from dbt.adapters.watsonx_spark.http_auth.authenticator import Authenticator
 from thrift.transport import THttpClient
 from venv import logger
 import requests
+from dbt.adapters.watsonx_spark import __version__
+from platform import python_version
+import platform
+import sys
 
 
 CPD = "CPD"
@@ -10,6 +14,10 @@ CPD_AUTH_ENDPOINT = "/icp4d-api/v1/authorize"
 SASS_AUTH_ENDPOINT = "/lakehouse/api/v2/auth/authenticate"
 CPD_AUTH_HEADER = "LhInstanceId"
 SASS_AUTH_HEADER = "AuthInstanceId"
+DBT_WATSONX_SPARK_VERSION = __version__.version
+OS = platform.system()
+PYTHON_VERSION = python_version()
+USER_AGENT = f"dbt-watsonx-spark/{DBT_WATSONX_SPARK_VERSION} (IBM watsonx.data; Python {PYTHON_VERSION}; {OS})"
 
 
 class WatsonxDataEnv():
@@ -71,7 +79,8 @@ class WatsonxData(Authenticator):
 
     def _post_request(self, url: str, data: dict):
         try:
-            response = requests.post(url, json=data, verify=False)
+            header = {"User-Agent": USER_AGENT}
+            response = requests.post(url, json=data, headers= header, verify=False)
             if response.status_code != 200:
                 logger.error(
                     f"Failed to retrieve token. Error: Received status code {response.status_code}")
@@ -86,7 +95,8 @@ class WatsonxData(Authenticator):
         auth_header = {"Authorization": "Bearer {}".format(token_obj.token)}
         instance_header = {
             str(wxd_env.authInstanceHeaderKey): str(self.instance)}
-        headers = {**auth_header, **instance_header}
+        user_agent = {"User-Agent": USER_AGENT}
+        headers = {**auth_header, **instance_header, **user_agent}
         return headers
 
     def _get_token(self, wxd_env):
@@ -94,23 +104,25 @@ class WatsonxData(Authenticator):
             return self._get_cpd_token(wxd_env)
         elif wxd_env.envType == SAAS:
             return self._get_sass_token(wxd_env)
-        
+
     def get_catlog_details(self, catalog_name):
         wxd_env = self._get_environment()
         url = f"{self.host}/lakehouse/api/v2/catalogs/{catalog_name}"
-        result = self._get_token(wxd_env)  
+        result = self._get_token(wxd_env)
         header = {
-          'Authorization': "Bearer {}".format(result.token),
-          'accept': 'application/json',
-          f"{wxd_env.authInstanceHeaderKey}": f"{self.instance}"
-        }   
+            'Authorization': "Bearer {}".format(result.token),
+            'accept': 'application/json',
+            wxd_env.authInstanceHeaderKey: self.instance,
+            "User-Agent": USER_AGENT
+        }
         try:
             response = requests.get(url=url, headers=header, verify=False)
             if response.status_code != 200:
                 logger.error(
                     f"Failed to retrieve get catlog details. Error: Received status code {response.status_code}, {response.content}")
                 return
-            bucket, file_format = response.json().get("associated_buckets")[0], response.json().get("catalog_type")
+            bucket, file_format = response.json().get("associated_buckets")[
+                0], response.json().get("catalog_type")
             return bucket, file_format
         except Exception as err:
             logger.error(f"Exception caught: {err}")
