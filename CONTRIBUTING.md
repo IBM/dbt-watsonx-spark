@@ -1,127 +1,69 @@
-# Contributing to `dbt-spark`
+## Contributing In General
+Our project welcomes external contributions. If you have an itch, please feel
+free to scratch it.
 
-1. [About this document](#about-this-document)
-3. [Getting the code](#getting-the-code)
-5. [Running `dbt-spark` in development](#running-dbt-spark-in-development)
-6. [Testing](#testing)
-7. [Updating Docs](#updating-docs)
-7. [Submitting a Pull Request](#submitting-a-pull-request)
+To contribute code or documentation, please submit a **FIXME** [pull request](https://github.com/ibm/repo-template/pulls).
 
-## About this document
-This document is a guide intended for folks interested in contributing to `dbt-spark`. Below, we document the process by which members of the community should create issues and submit pull requests (PRs) in this repository. It is not intended as a guide for using `dbt-spark`, and it assumes a certain level of familiarity with Python concepts such as virtualenvs, `pip`, Python modules, and so on. This guide assumes you are using macOS or Linux and are comfortable with the command line.
+A good way to familiarize yourself with the codebase and contribution process is
+to look for and tackle low-hanging fruit in the **FIXME** [issue tracker](https://github.com/ibm/repo-template/issues).
+Before embarking on a more ambitious contribution, please quickly [get in touch](#communication) with us.
 
-For those wishing to contribute we highly suggest reading the dbt-core's [contribution guide](https://github.com/dbt-labs/dbt-core/blob/HEAD/CONTRIBUTING.md) if you haven't already. Almost all of the information there is applicable to contributing here, too!
+**Note: We appreciate your effort, and want to avoid a situation where a contribution
+requires extensive rework (by you or by us), sits in backlog for a long time, or
+cannot be accepted at all!**
 
-### Signing the CLA
+### Proposing new features
 
-Please note that all contributors to `dbt-spark` must sign the [Contributor License Agreement](https://docs.getdbt.com/docs/contributor-license-agreements) to have their Pull Request merged into an `dbt-spark` codebase. If you are unable to sign the CLA, then the `dbt-spark` maintainers will unfortunately be unable to merge your Pull Request. You are, however, welcome to open issues and comment on existing ones.
+If you would like to implement a new feature, please **FIXME** [raise an issue](https://github.com/ibm/repo-template/issues)
+before sending a pull request so the feature can be discussed. This is to avoid
+you wasting your valuable time working on a feature that the project developers
+are not interested in accepting into the code base.
 
+### Fixing bugs
 
-## Getting the code
+If you would like to fix a bug, please **FIXME** [raise an issue](https://github.com/ibm/repo-template/issues) before sending a
+pull request so it can be tracked.
 
-You will need `git` in order to download and modify the `dbt-spark` source code. You can find directions [here](https://github.com/git-guides/install-git) on how to install `git`.
+### Merge approval
 
-### External contributors
+The project maintainers use LGTM (Looks Good To Me) in comments on the code
+review to indicate acceptance. A change requires LGTMs from two of the
+maintainers of each component affected.
 
-If you are not a member of the `dbt-labs` GitHub organization, you can contribute to `dbt-spark` by forking the `dbt-spark` repository. For a detailed overview on forking, check out the [GitHub docs on forking](https://help.github.com/en/articles/fork-a-repo). In short, you will need to:
+For a list of the maintainers, see the [MAINTAINERS.md](MAINTAINERS.md) page.
 
-1. fork the `dbt-spark` repository
-2. clone your fork locally
-3. check out a new branch for your proposed changes
-4. push changes to your fork
-5. open a pull request against `dbt-labs/dbt-spark` from your forked repository
+## Legal
 
-### dbt Labs contributors
-
-If you are a member of the `dbt Labs` GitHub organization, you will have push access to the `dbt-spark` repo. Rather than forking `dbt-spark` to make your changes, just clone the repository, check out a new branch, and push directly to that branch.
-
-
-## Running `dbt-spark` in development
-
-### Installation
-
-First make sure that you set up your `virtualenv` as described in [Setting up an environment](https://github.com/dbt-labs/dbt-core/blob/HEAD/CONTRIBUTING.md#setting-up-an-environment).  Ensure you have the latest version of pip installed with `pip install --upgrade pip`. Next, install `dbt-spark` latest dependencies:
-
-```sh
-pip install -e . -r dev-requirements.txt
-```
-
-When `dbt-spark` is installed this way, any changes you make to the `dbt-spark` source code will be reflected immediately in your next `dbt-spark` run.
-
-To confirm you have correct version of `dbt-core` installed please run `dbt --version` and `which dbt`.
-
-
-## Testing
-
-### Initial Setup
-
-`dbt-spark` uses test credentials specified in a `test.env` file in the root of the repository. This `test.env` file is git-ignored, but please be _extra_ careful to never check in credentials or other sensitive information when developing. To create your `test.env` file, copy the provided example file, then supply your relevant credentials.
+Each source file must include a license header for the Apache
+Software License 2.0. Using the SPDX format is the simplest approach.
+e.g.
 
 ```
-cp test.env.example test.env
-$EDITOR test.env
+/*
+Copyright <holder> All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
 ```
 
-### Test commands
-There are a few methods for running tests locally.
+We have tried to make it as easy as possible to make contributions. This
+applies to how we handle the legal aspects of contribution. We use the
+same approach - the [Developer's Certificate of Origin 1.1 (DCO)](https://github.com/hyperledger/fabric/blob/master/docs/source/DCO1.1.txt) - that the Linux® Kernel [community](https://elinux.org/Developer_Certificate_Of_Origin)
+uses to manage code contributions.
 
-#### dagger
-To run functional tests we rely on [dagger](https://dagger.io/). This launches a virtual container or containers to test against.
+We simply ask that when submitting a patch for review, the developer
+must include a sign-off statement in the commit message.
 
-```sh
-pip install -r dagger/requirements.txt
-python dagger/run_dbt_spark_tests.py --profile databricks_sql_endpoint --test-path tests/functional/adapter/test_basic.py::TestSimpleMaterializationsSpark::test_base
+Here is an example Signed-off-by line, which indicates that the
+submitter accepts the DCO:
+
+```
+Signed-off-by: John Doe <john.doe@example.com>
 ```
 
-`--profile`: required, this is the kind of spark connection to test against
+You can include this automatically when you commit a change to your
+local git repository using the following command:
 
-_options_:
-  - "apache_spark"
-  - "spark_session"
-  - "databricks_sql_endpoint"
-  - "databricks_cluster"
-  - "databricks_http_cluster"
-
-`--test-path`: optional, this is the path to the test file you want to run. If not specified, all tests will be run.
-
-#### pytest
-Finally, you can also run a specific test or group of tests using `pytest` directly (if you have all the dependencies set up on your machine). With a Python virtualenv active and dev dependencies installed you can do things like:
-
-```sh
-# run all functional tests
-python -m pytest --profile databricks_sql_endpoint tests/functional/
-# run specific functional tests
-python -m pytest --profile databricks_sql_endpoint tests/functional/adapter/test_basic.py
-# run all unit tests in a file
-python -m pytest tests/unit/test_adapter.py
-# run a specific unit test
-python -m pytest test/unit/test_adapter.py::TestSparkAdapter::test_profile_with_database
 ```
-## Updating Docs
-
-Many changes will require and update to the `dbt-spark` docs here are some useful resources.
-
-- Docs are [here](https://docs.getdbt.com/).
-- The docs repo for making changes is located [here]( https://github.com/dbt-labs/docs.getdbt.com).
-- The changes made are likely to impact one or both of [Spark Profile](https://docs.getdbt.com/reference/warehouse-profiles/spark-profile), or [Saprk Configs](https://docs.getdbt.com/reference/resource-configs/spark-configs).
-- We ask every community member who makes a user-facing change to open an issue or PR regarding doc changes.
-
-## Adding CHANGELOG Entry
-
-We use [changie](https://changie.dev) to generate `CHANGELOG` entries. **Note:** Do not edit the `CHANGELOG.md` directly. Your modifications will be lost.
-
-Follow the steps to [install `changie`](https://changie.dev/guide/installation/) for your system.
-
-Once changie is installed and your PR is created, simply run `changie new` and changie will walk you through the process of creating a changelog entry.  Commit the file that's created and your changelog entry is complete!
-
-You don't need to worry about which `dbt-spark` version your change will go into. Just create the changelog entry with `changie`, and open your PR against the `main` branch. All merged changes will be included in the next minor version of `dbt-spark`. The Core maintainers _may_ choose to "backport" specific changes in order to patch older minor versions. In that case, a maintainer will take care of that backport after merging your PR, before releasing the new version of `dbt-spark`.
-
-## Submitting a Pull Request
-
-dbt Labs provides a CI environment to test changes to the `dbt-spark` adapter, and periodic checks against the development version of `dbt-core` through Github Actions.
-
-A `dbt-spark` maintainer will review your PR. They may suggest code revision for style or clarity, or request that you add unit or functional test(s). These are good things! We believe that, with a little bit of help, anyone can contribute high-quality code.
-
-Once all requests and answers have been answered the `dbt-spark` maintainer can trigger CI testing.
-
-Once all tests are passing and your PR has been approved, a `dbt-spark` maintainer will merge your changes into the active development branch. And that's it! Happy developing :tada:
+git commit -s
+```
