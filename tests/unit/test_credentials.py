@@ -7,6 +7,7 @@ def test_credentials_server_side_parameters_keys_and_values_are_strings() -> Non
         method=SparkConnectionMethod.THRIFT,
         database="tests",
         schema="tests",
+        catalog="tests",
         server_side_parameters={"spark.configuration": 10},
     )
     assert credentials.server_side_parameters["spark.configuration"] == "10"
