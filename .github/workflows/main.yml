@@ -61,7 +61,7 @@ jobs:
           pre-commit --version
           python -m pip install -r requirements.txt
           python -m pip install -r dev-requirements.txt
-          python -c "import dbt.adapters.spark"
+          python -c "import dbt.adapters.watsonx_spark"
 
       - name: Run pre-commit hooks
         run: pre-commit run --all-files --show-diff-on-failure
