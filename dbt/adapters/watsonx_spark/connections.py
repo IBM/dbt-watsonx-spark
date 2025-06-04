@@ -440,7 +440,7 @@ class SparkConnectionManager(SQLConnectionManager):
         for i in range(1 + creds.connect_retries):
             try:
                 if creds.method == SparkConnectionMethod.HTTP:
-                    cls.validate_creds(creds, ["token", "host", "port", "cluster", "organization"])
+                    cls.validate_creds(creds, ["uri", "host", "schema" , "catalog" ,"auth"])
 
                     # Prepend https:// if it is missing
                     host = creds.host

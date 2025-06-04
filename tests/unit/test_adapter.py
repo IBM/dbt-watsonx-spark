@@ -40,6 +40,7 @@ class TestSparkAdapter(unittest.TestCase):
                         "token": "abc123",
                         "organization": "0123456789",
                         "cluster": "01234-23423-coffeetime",
+                        "catalog": "test",
                         "server_side_parameters": {"spark.driver.memory": "4g"},
                     }
                 },
@@ -58,6 +59,7 @@ class TestSparkAdapter(unittest.TestCase):
                         "schema": "analytics",
                         "host": "myorg.sparkhost.com",
                         "port": 10001,
+                        "catalog": "test",
                         "user": "dbt",
                     }
                 },
@@ -78,6 +80,7 @@ class TestSparkAdapter(unittest.TestCase):
                         "port": 10001,
                         "user": "dbt",
                         "auth": "KERBEROS",
+                        "catalog": "test",
                         "kerberos_service_name": "hive",
                     }
                 },
@@ -97,6 +100,7 @@ class TestSparkAdapter(unittest.TestCase):
                         "schema": "analytics",
                         "host": "myorg.sparkhost.com",
                         "port": 10001,
+                        "catalog": "test",
                         "user": "dbt",
                     }
                 },
@@ -118,6 +122,7 @@ class TestSparkAdapter(unittest.TestCase):
                         "token": "abc123",
                         "organization": "0123456789",
                         "cluster": "01234-23423-coffeetime",
+                        "catalog": "test",
                         "driver": "Simba",
                     }
                 },
@@ -138,6 +143,7 @@ class TestSparkAdapter(unittest.TestCase):
                         "port": 443,
                         "token": "abc123",
                         "endpoint": "012342342393920a",
+                        "catalog": "test",
                         "driver": "Simba",
                     }
                 },
@@ -159,7 +165,7 @@ class TestSparkAdapter(unittest.TestCase):
             self.assertEqual(configuration["spark.driver.memory"], "4g")
 
         # with mock.patch.object(hive, 'connect', new=hive_http_connect):
-        with mock.patch("dbt.adapters.spark.connections.hive.connect", new=hive_http_connect):
+        with mock.patch("dbt.adapters.watsonx_spark.connections.hive.connect", new=hive_http_connect):
             connection = adapter.acquire_connection("dummy")
             connection.handle  # trigger lazy-load
 
@@ -168,6 +174,7 @@ class TestSparkAdapter(unittest.TestCase):
             self.assertEqual(connection.credentials.cluster, "01234-23423-coffeetime")
             self.assertEqual(connection.credentials.token, "abc123")
             self.assertEqual(connection.credentials.schema, "analytics")
+            self.assertEqual(connection.credentials.catalog, "test")
             self.assertIsNone(connection.credentials.database)
 
     def test_thrift_connection(self):
@@ -253,7 +260,7 @@ class TestSparkAdapter(unittest.TestCase):
             )  # noqa
 
         with mock.patch(
-            "dbt.adapters.spark.connections.pyodbc.connect", new=pyodbc_connect
+            "dbt.adapters.watsonx_spark.connections.pyodbc.connect", new=pyodbc_connect
         ):  # noqa
             connection = adapter.acquire_connection("dummy")
             connection.handle  # trigger lazy-load
@@ -279,7 +286,7 @@ class TestSparkAdapter(unittest.TestCase):
             )  # noqa
 
         with mock.patch(
-            "dbt.adapters.spark.connections.pyodbc.connect", new=pyodbc_connect
+            "dbt.adapters.watsonx_spark.connections.pyodbc.connect", new=pyodbc_connect
         ):  # noqa
             connection = adapter.acquire_connection("dummy")
             connection.handle  # trigger lazy-load

@@ -53,9 +53,6 @@ jobs:
         test:
           - "apache_spark"
           - "spark_session"
-          - "databricks_sql_endpoint"
-          - "databricks_cluster"
-          - "databricks_http_cluster"
 
     env:
       DBT_INVOCATION_ENV: github-actions

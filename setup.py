@@ -4,9 +4,9 @@ import sys
 import re
 
 # require python 3.8 or newer
-if sys.version_info < (3, 8):
+if sys.version_info < (3, 9):
     print("Error: dbt does not support this version of Python.")
-    print("Please upgrade to Python 3.8 or higher.")
+    print("Please upgrade to Python 3.9 or higher.")
     sys.exit(1)
 
 # require version of setuptools that supports find_namespace_packages
@@ -41,7 +41,7 @@ def _get_plugin_version_dict():
 
 
 package_name = "dbt-watsonx-spark"
-package_version = "0.0.8"
+package_version = "0.0.9"
 description = """IBM watsonx.data spark plugin for dbt"""
 
 setup(
@@ -74,5 +74,5 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
     ],
-    python_requires=">=3.8,<3.12",
+    python_requires=">=3.9,<3.12",
 )
