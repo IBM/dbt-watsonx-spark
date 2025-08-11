@@ -1,3 +1,4 @@
+import re
 from dbt.adapters.watsonx_spark.http_auth.authenticator import Authenticator
 from thrift.transport import THttpClient
 from venv import logger
@@ -10,8 +11,8 @@ import sys
 
 CPD = "CPD"
 SAAS = "SASS"
+DEFAULT_SASS_URI_VERSION = "v2"
 CPD_AUTH_ENDPOINT = "/icp4d-api/v1/authorize"
-SASS_AUTH_ENDPOINT = "/lakehouse/api/v2/auth/authenticate"
 CPD_AUTH_HEADER = "LhInstanceId"
 SASS_AUTH_HEADER = "AuthInstanceId"
 DBT_WATSONX_SPARK_VERSION = __version__.version
@@ -33,18 +34,38 @@ class Token:
 
 
 class WatsonxData(Authenticator):
+    VERSION_REGEX = re.compile(r"/api/(v[0-9]+(?:\.[0-9]+)*)\b(?:/|$)")
 
-    def __init__(self, profile, host):
+    def __init__(self, profile, host, uri):
         self.profile = profile
         self.type = profile.get("type")
         self.instance = profile.get("instance")
         self.user = profile.get("user")
         self.apikey = profile.get("apikey")
         self.host = host
+        self.uri = uri
+        if self.uri:
+            version_from_uri = self._extract_version_from_uri(self.uri)
+        else:
+            version_from_uri = None
+
+        self.lakehouse_version = (
+            version_from_uri
+            or DEFAULT_SASS_URI_VERSION
+        )
+        self.sass_auth_endpoint = f"/lakehouse/api/{self.lakehouse_version}/auth/authenticate"
+
+    def _extract_version_from_uri(self, uri: str) -> str | None:
+        """
+        Extracts version url like 'v3' or 'v3.1' from paths containing '/api/<version>/'.
+        Returns None if not found.
+        """
+        m = self.VERSION_REGEX.search(uri)
+        return m.group(1) if m else None
 
     def _get_environment(self):
         if "crn" in self.instance:
-            return WatsonxDataEnv(SAAS, SASS_AUTH_ENDPOINT, SASS_AUTH_HEADER)
+            return WatsonxDataEnv(SAAS, self.sass_auth_endpoint, SASS_AUTH_HEADER)
         else:
             return WatsonxDataEnv(CPD, CPD_AUTH_ENDPOINT, CPD_AUTH_HEADER)
 
@@ -107,7 +128,7 @@ class WatsonxData(Authenticator):
 
     def get_catlog_details(self, catalog_name):
         wxd_env = self._get_environment()
-        url = f"{self.host}/lakehouse/api/v2/catalogs/{catalog_name}"
+        url = f"{self.host}/lakehouse/api/{self.lakehouse_version}/catalogs/{catalog_name}"
         result = self._get_token(wxd_env)
         header = {
             'Authorization': "Bearer {}".format(result.token),
