@@ -172,7 +172,7 @@ class SparkCredentials(Credentials):
                 str(key): str(value) for key, value in self.auth.items()
             }
 
-        authenticator = get_authenticator(self.auth,self.host)
+        authenticator = get_authenticator(self.auth,self.host,self.uri)
 
         if self.token == None or self.token == "":
             self.token = authenticator.get_token()
@@ -411,7 +411,7 @@ class SparkConnectionManager(SQLConnectionManager):
 
     def get_location_from_api(credentials: SparkCredentials) -> None:
         if credentials.catalog is not None:
-            authenticator = get_authenticator(credentials.auth,credentials.host)
+            authenticator = get_authenticator(credentials.auth,credentials.host,credentials.uri)
             bucket, file_format = authenticator.get_catlog_details(credentials.catalog)
             return bucket, file_format
         return None
@@ -475,7 +475,7 @@ class SparkConnectionManager(SQLConnectionManager):
                     transport.setCustomHeaders({"Authorization": "Basic {}".format(token)})
                     
                     if creds.auth:
-                        authenticator = get_authenticator(creds.auth,host)
+                        authenticator = get_authenticator(creds.auth,host,creds.uri)
                         transport = authenticator.Authenticate(transport)
 
                     conn = hive.connect(

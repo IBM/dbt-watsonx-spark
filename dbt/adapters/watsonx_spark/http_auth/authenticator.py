@@ -15,5 +15,5 @@ class Authenticator(ABC):
 
 from dbt.adapters.watsonx_spark.http_auth.wxd_authenticator import WatsonxData
 
-def get_authenticator(authProfile, host):
-    return WatsonxData(authProfile, host)
+def get_authenticator(authProfile, host, uri):
+    return WatsonxData(authProfile, host, uri)
