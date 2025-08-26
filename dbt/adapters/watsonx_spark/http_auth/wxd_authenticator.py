@@ -7,6 +7,7 @@ from dbt.adapters.watsonx_spark import __version__
 from platform import python_version
 import platform
 import sys
+from typing import Optional
 
 
 CPD = "CPD"
@@ -55,7 +56,7 @@ class WatsonxData(Authenticator):
         )
         self.sass_auth_endpoint = f"/lakehouse/api/{self.lakehouse_version}/auth/authenticate"
 
-    def _extract_version_from_uri(self, uri: str) -> str | None:
+    def _extract_version_from_uri(self, uri: str) -> Optional[str]:
         """
         Extracts version url like 'v3' or 'v3.1' from paths containing '/api/<version>/'.
         Returns None if not found.
