@@ -166,7 +166,9 @@ class SparkAdapter(SQLAdapter):
     def _get_relation_information(self, row: agate.Row) -> RelationInfo:
         """relation info was fetched with SHOW TABLES EXTENDED"""
         try:
-            _schema, name, _, information = row
+            # _schema, name, _, information = row
+            # database, tableName, isTemporary (bool), information (str)
+            _schema, name, _is_temp, information = row
         except ValueError:
             raise DbtRuntimeError(
                 f'Invalid value from "show tables extended ...", got {len(row)} values, expected 4'
@@ -207,21 +209,78 @@ class SparkAdapter(SQLAdapter):
     ) -> List[SparkRelation]:
         """Aggregate relations with format metadata included."""
         relations = []
+
+        if not hasattr(self, "_views_cache"):
+           self._views_cache = {}
+
         for row in row_list:
             _schema, name, information = relation_info_func(row)
 
-            rel_type: RelationType = (
-                RelationType.View if "Type: VIEW" in information else RelationType.Table
-            )
-            is_delta: bool = "Provider: delta" in information
-            is_hudi: bool = "Provider: hudi" in information
-            is_iceberg: bool = "Provider: iceberg" in information
+            # rel_type: RelationType = (
+            #     RelationType.View if "Type: VIEW" in information else RelationType.Table
+            # )
+            # is_delta: bool = "Provider: delta" in information
+            # is_hudi: bool = "Provider: hudi" in information
+            # is_iceberg: bool = "Provider: iceberg" in information
+
+                        # Normalize info to string (some engines return bool/None)
+            info_str = information if isinstance(information, str) else ""
+            info_up = info_str.upper()
+
+            # 1) Decide View/Table without relying on `information`
+            rel_type: RelationType
+            if "TYPE: VIEW" in info_up:
+                rel_type = RelationType.View
+            elif info_str == "":
+                # No information available → check SHOW VIEWS membership
+                try:
+                    views = self._views_cache.get(_schema)
+                    if views is None:
+                        # SHOW VIEWS row shape varies; the name is usually at index 1
+                        rows = self.execute(f"SHOW VIEWS IN `{_schema}`")
+                        candidate = set()
+                        for r in rows:
+                            try:
+                                # r can be tuple/list; (namespace, viewName, [isTemp?])
+                                candidate.add(r[1])
+                            except Exception:
+                                continue
+                        views = self._views_cache[_schema] = candidate
+                    rel_type = RelationType.View if name in views else RelationType.Table
+                except Exception:
+                    # If SHOW VIEWS not supported, default to Table
+                    rel_type = RelationType.Table
+            else:
+                rel_type = RelationType.Table
+
+            # 2) Provider flags (best-effort)
+            is_delta: bool = "PROVIDER: DELTA" in info_up
+            is_hudi: bool = "PROVIDER: HUDI" in info_up
+            is_iceberg: bool = "PROVIDER: ICEBERG" in info_up
+
+            # Optional: if info missing and you care about provider, try a quick DESCRIBE lookup
+            if info_str == "" and (not (is_delta or is_hudi or is_iceberg)):
+                try:
+                    table_results = self.execute_macro(
+                        DESCRIBE_TABLE_EXTENDED_MACRO_NAME, kwargs={"table_name": f"{_schema}.{name}"}
+                    )
+                    provider = ""
+                    for info_row in table_results:
+                        t, v, _extra = info_row
+                        if isinstance(t, str) and t.strip().lower() == "provider":
+                            provider = (v or "").strip().lower()
+                            break
+                    is_delta = provider == "delta"
+                    is_hudi = provider == "hudi"
+                    is_iceberg = provider == "iceberg"
+                except Exception:
+                    pass
 
             relation: BaseRelation = self.Relation.create(
                 schema=_schema,
                 identifier=name,
                 type=rel_type,
-                information=information,
+                information=info_str,
                 is_delta=is_delta,
                 is_iceberg=is_iceberg,
                 is_hudi=is_hudi,
