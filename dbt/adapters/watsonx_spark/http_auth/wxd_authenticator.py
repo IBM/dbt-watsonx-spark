@@ -1,3 +1,4 @@
+import json
 import re
 from dbt.adapters.watsonx_spark.http_auth.authenticator import Authenticator
 from thrift.transport import THttpClient
@@ -96,7 +97,10 @@ class WatsonxData(Authenticator):
                 "instance_name": "",
                 "instance_id": self.instance,
             })
-        token = Token(response.get("accessToken"))
+        
+        text = json.dumps(response)
+        token = re.search(r'"access(?:_)?token"\s*:\s*"([^"]+)"', text, re.IGNORECASE)
+        token = Token(token.group(1))
         return token
 
     def _post_request(self, url: str, data: dict):
@@ -143,8 +147,13 @@ class WatsonxData(Authenticator):
                 logger.error(
                     f"Failed to retrieve get catlog details. Error: Received status code {response.status_code}, {response.content}")
                 return
-            bucket, file_format = response.json().get("associated_buckets")[
-                0], response.json().get("catalog_type")
+            if self.lakehouse_version == "v2":
+                bucket, file_format = response.json().get("associated_buckets")[
+                    0], response.json().get("catalog_type")
+            else:
+                bucket, file_format = response.json().get("associated_storage")[
+                    0], response.json().get("type")
+                
             return bucket, file_format
         except Exception as err:
             logger.error(f"Exception caught: {err}")
