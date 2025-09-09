@@ -311,16 +311,53 @@
 {% endmacro %}
 
 {% macro watsonx_spark__list_relations_without_caching(relation) %}
-  {% call statement('list_relations_without_caching', fetch_result=True) -%}
+  {% set list_name = 'list_relations_without_caching__' ~ (invocation_id | default('run')) ~ '__' ~ relation.schema %}
+  {% call statement(list_name, fetch_result=True) -%}
   {%- if config.get("file_format") == "1" %}
       show table extended in {{ relation.schema }} like '*'
   {% else %}
       show tables in {{ relation.schema }} like '*'
   {% endif %}
 {% endcall %}
+  {% set tables = load_result(list_name).table %}
 
-  {% do return(load_result('list_relations_without_caching').table) %}
+  {% set results = [] %}
+  {% for r in tables %}
+    {% set tname = r.get('tableName') or r.get('table_name') or r.get('name') %}
+
+    {% set desc_stmt = 'describe_extended__' ~ (invocation_id | default('run')) ~ '__' ~ relation.schema ~ '__' ~ tname %}
+    {% call statement(desc_stmt, fetch_result=True) %}
+      describe TABLE extended {{ relation.schema }}.{{ tname }}
+    {% endcall %}
+    {% set t = load_result(desc_stmt).table %}
+
+    {% set in_meta = false %}
+    {% set schema_lines = [] %}
+    {% set header = [] %}
+    {% for rr in t %}
+      {% set col = rr['col_name'] %}
+      {% set dt  = rr['data_type'] %}
+      {% if in_meta %}
+        {% if col in ['Type','Provider','Location','Owner','Statistics'] %}
+          {% do header.append(col ~ ': ' ~ dt) %}
+        {% endif %}
+      {% else %}
+        {% if not col or col.startswith('#') %}
+          {% set in_meta = true %}
+        {% else %}
+          {% do schema_lines.append(' |-- ' ~ col ~ ': ' ~ dt ~ ' (nullable = true)') %}
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+    {% do header.append('Schema: root') %}
+    {% set info = (header + schema_lines) | join('\n') %}
+
+    {% do results.append([relation.schema, tname, false, info]) %}
+  {% endfor %}
+
+  {% do return(results) %}
 {% endmacro %}
+
 
 {% macro list_relations_show_tables_without_caching(schema_relation) %}
   {#-- Spark with iceberg tables don't work with show table extended for #}
