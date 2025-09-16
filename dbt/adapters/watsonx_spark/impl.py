@@ -248,7 +248,10 @@ class SparkAdapter(SQLAdapter):
             if f"Database '{schema_relation}' not found" in errmsg:
                 return []
             # Iceberg compute engine behavior: show table
-            elif "SHOW TABLE EXTENDED is not supported for v2 tables" in errmsg:
+            elif (
+                "SHOW TABLE EXTENDED is not supported for v2 tables" in errmsg
+                or 'Invalid value from "show tables extended' in errmsg
+            ):
                 # this happens with spark-iceberg with v2 iceberg tables
                 # https://issues.apache.org/jira/browse/SPARK-33393
                 try:
