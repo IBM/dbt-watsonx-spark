@@ -245,15 +245,16 @@ class SparkAdapter(SQLAdapter):
         kwargs = {"schema_relation": schema_relation}
         # self.execute_macro("show_information", kwargs=kwargs)
         try:
-            # Default compute engine behavior: show tables extended
-            show_table_extended_rows = self.execute_macro(LIST_RELATIONS_MACRO_NAME, kwargs=kwargs)
-            # self.to_agate_table(show_table_extended_rows)
-            show_table_extended_rows = self.to_agate_table(show_table_extended_rows)
-            print("show_table_extended_rows: ",show_table_extended_rows[0]["information"])
-            return self._build_spark_relation_list(
+            show_table_extended_rows = self.execute_macro(
+                LIST_RELATIONS_MACRO_NAME, kwargs=kwargs
+            )
+            rels = self._build_spark_relation_list(
                 row_list=show_table_extended_rows,
                 relation_info_func=self._get_relation_information,
             )
+            if "." in schema_relation.schema:
+                rels = [r.incorporate(path={"schema": schema_relation.schema}) for r in rels]
+            return rels
         except DbtRuntimeError as e:
             errmsg = getattr(e, "msg", "")
             if f"Database '{schema_relation}' not found" in errmsg:
@@ -270,10 +271,13 @@ class SparkAdapter(SQLAdapter):
                     show_table_rows = self.execute_macro(
                         LIST_RELATIONS_SHOW_TABLES_MACRO_NAME, kwargs=kwargs
                     )
-                    return self._build_spark_relation_list(
+                    rels = self._build_spark_relation_list(
                         row_list=show_table_rows,
                         relation_info_func=self._get_relation_information_using_describe,
                     )
+                    if "." in schema_relation.schema:
+                        rels = [r.incorporate(path={"schema": schema_relation.schema}) for r in rels]
+                    return rels
                 except DbtRuntimeError as e:
                     description = "Error while retrieving information about"
                     logger.debug(f"{description} {schema_relation}: {e.msg}")
