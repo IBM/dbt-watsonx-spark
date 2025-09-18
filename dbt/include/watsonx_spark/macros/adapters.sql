@@ -317,6 +317,7 @@
   {% do return(load_result('list_relations_without_caching').table) %}
 {% endmacro %}
 
+
 {% macro list_relations_show_tables_without_caching(schema_relation) %}
   {#-- Spark with iceberg tables don't work with show table extended for #}
   {#-- V2 iceberg tables #}

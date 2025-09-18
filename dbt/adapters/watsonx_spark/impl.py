@@ -70,7 +70,7 @@ TABLE_OR_VIEW_NOT_FOUND_MESSAGES = (
     "Table or view not found",
     "NoSuchTableException",
 )
-
+HEADER_KEYS = ("Type:", "Provider:", "Location:", "Owner:", "Statistics:")
 
 @dataclass
 class SparkConfig(AdapterConfig):
@@ -166,7 +166,14 @@ class SparkAdapter(SQLAdapter):
     def _get_relation_information(self, row: agate.Row) -> RelationInfo:
         """relation info was fetched with SHOW TABLES EXTENDED"""
         try:
+            
             _schema, name, _, information = row
+
+            print("row",row.__dict__)
+            print("_schema",_schema)
+            print("name",name)
+            print("_",_)
+            print("information",information)
         except ValueError:
             raise DbtRuntimeError(
                 f'Invalid value from "show tables extended ...", got {len(row)} values, expected 4'
@@ -208,6 +215,7 @@ class SparkAdapter(SQLAdapter):
         """Aggregate relations with format metadata included."""
         relations = []
         for row in row_list:
+            print("row",row.__dict__)
             _schema, name, information = relation_info_func(row)
 
             rel_type: RelationType = (
@@ -235,7 +243,7 @@ class SparkAdapter(SQLAdapter):
         try different methods to fetch relation information."""
 
         kwargs = {"schema_relation": schema_relation}
-
+        # self.execute_macro("show_information", kwargs=kwargs)
         try:
             show_table_extended_rows = self.execute_macro(
                 LIST_RELATIONS_MACRO_NAME, kwargs=kwargs
@@ -514,6 +522,48 @@ class SparkAdapter(SQLAdapter):
 
         exists = True if schema in [row[0] for row in results] else False
         return exists
+
+    def to_agate_table(self,rows_list):
+        fixed = []
+        for db, name, is_temp, info in rows_list:
+            # drop catalog if present: "reema_iceberg.incremental_schema_1" -> "incremental_schema_1"
+            schema = db.split(".", 1)[-1]
+            fixed.append([schema, name, bool(is_temp), self.normalize_information(info)])
+        return agate.Table(
+            fixed,
+            column_names=["database", "tableName", "isTemporary", "information"]
+        )
+    
+    def normalize_information(self,info: str) -> str:
+        """Move header keys out of the schema block; keep proper EXTENDED shape."""
+        lines = [ln.strip() for ln in info.splitlines() if ln.strip()]
+        header, schema_lines = [], []
+        in_schema = False
+
+        for ln in lines:
+            if ln.startswith("Schema:"):
+                in_schema = True
+                continue
+            if in_schema:
+                # Lines like "|-- col: type (nullable = true)"
+                m = re.match(r"^\|--\s+(.*)$", ln)
+                if m:
+                    raw = m.group(1)
+                    if any(raw.startswith(k) for k in HEADER_KEYS):
+                        # turn "|-- Type: MANAGED (nullable = true)" -> "Type: MANAGED"
+                        k, v = raw.split(":", 1)
+                        header.append(f"{k.strip()}: {v.split('(nullable',1)[0].strip()}")
+                    else:
+                        schema_lines.append(f" |-- {raw}")
+                continue
+            # Some DESCRIBE variants list header lines before "Schema:"
+            if any(ln.startswith(k) for k in HEADER_KEYS):
+                header.append(ln)
+            # ignore other pre-schema noise
+
+        # Compose canonical blob
+        return "\n".join(header + ["Schema: root"] + schema_lines)
+    
 
     def get_rows_different_sql(
         self,
