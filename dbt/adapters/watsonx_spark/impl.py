@@ -263,6 +263,7 @@ class SparkAdapter(SQLAdapter):
             elif (
                 "SHOW TABLE EXTENDED is not supported for v2 tables" in errmsg
                 or 'Invalid value from "show tables extended' in errmsg
+                or "Failed to list all tables under namespace" in errmsg
             ):
                 # this happens with spark-iceberg with v2 iceberg tables
                 # https://issues.apache.org/jira/browse/SPARK-33393
