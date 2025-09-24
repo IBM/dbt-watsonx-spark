@@ -249,7 +249,7 @@ class SparkAdapter(SQLAdapter):
                 rels = [r.incorporate(path={"schema": schema_relation.schema}) for r in rels]
             return rels
         except DbtRuntimeError as e:
-            errmsg = getattr(e, "msg", "")
+            errmsg = getattr(e, "msg", "").lower()
             if f"Database '{schema_relation}' not found" in errmsg:
                 return []
             # Iceberg compute engine behavior: show table
