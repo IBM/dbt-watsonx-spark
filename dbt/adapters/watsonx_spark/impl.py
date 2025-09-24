@@ -250,14 +250,15 @@ class SparkAdapter(SQLAdapter):
             return rels
         except DbtRuntimeError as e:
             errmsg = getattr(e, "msg", "").lower()
-            if f"Database '{schema_relation}' not found" in errmsg:
+            if f"database '{schema_relation}' not found" in errmsg:
                 return []
             # Iceberg compute engine behavior: show table
             if (
-                "SHOW TABLE EXTENDED is not supported for v2 tables" in errmsg
-                or 'Invalid value from "show tables extended' in errmsg
-                or "Failed to list all tables under namespace" in errmsg
-           or ("show table extended" in errmsg and "not supported" in errmsg)):
+                "show table extended is not supported for v2 tables" in errmsg
+                or 'invalid value from "show tables extended' in errmsg
+                or "failed to list all tables under namespace" in errmsg
+                or ("show table extended" in errmsg and "not supported" in errmsg)
+                ):
                 # this happens with spark-iceberg with v2 iceberg tables
                 # https://issues.apache.org/jira/browse/SPARK-33393
                 try:
