@@ -253,7 +253,7 @@ class SparkAdapter(SQLAdapter):
             if f"Database '{schema_relation}' not found" in errmsg:
                 return []
             # Iceberg compute engine behavior: show table
-            elif (
+            if (
                 "SHOW TABLE EXTENDED is not supported for v2 tables" in errmsg
                 or 'Invalid value from "show tables extended' in errmsg
                 or "Failed to list all tables under namespace" in errmsg
