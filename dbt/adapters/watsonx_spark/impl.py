@@ -169,11 +169,6 @@ class SparkAdapter(SQLAdapter):
             
             _schema, name, _, information = row
 
-            print("row",row.__dict__)
-            print("_schema",_schema)
-            print("name",name)
-            print("_",_)
-            print("information",information)
         except ValueError:
             raise DbtRuntimeError(
                 f'Invalid value from "show tables extended ...", got {len(row)} values, expected 4'
@@ -215,7 +210,6 @@ class SparkAdapter(SQLAdapter):
         """Aggregate relations with format metadata included."""
         relations = []
         for row in row_list:
-            print("row",row.__dict__)
             _schema, name, information = relation_info_func(row)
 
             rel_type: RelationType = (
@@ -243,7 +237,6 @@ class SparkAdapter(SQLAdapter):
         try different methods to fetch relation information."""
 
         kwargs = {"schema_relation": schema_relation}
-        # self.execute_macro("show_information", kwargs=kwargs)
         try:
             show_table_extended_rows = self.execute_macro(
                 LIST_RELATIONS_MACRO_NAME, kwargs=kwargs
@@ -527,7 +520,7 @@ class SparkAdapter(SQLAdapter):
     def to_agate_table(self,rows_list):
         fixed = []
         for db, name, is_temp, info in rows_list:
-            # drop catalog if present: "reema_iceberg.incremental_schema_1" -> "incremental_schema_1"
+            # drop catalog if present: "catalog.schema" -> "schema"
             schema = db.split(".", 1)[-1]
             fixed.append([schema, name, bool(is_temp), self.normalize_information(info)])
         return agate.Table(
@@ -560,7 +553,6 @@ class SparkAdapter(SQLAdapter):
             # Some DESCRIBE variants list header lines before "Schema:"
             if any(ln.startswith(k) for k in HEADER_KEYS):
                 header.append(ln)
-            # ignore other pre-schema noise
 
         # Compose canonical blob
         return "\n".join(header + ["Schema: root"] + schema_lines)
