@@ -312,15 +312,11 @@
 
 {% macro watsonx_spark__list_relations_without_caching(relation) %}
   {% call statement('list_relations_without_caching', fetch_result=True) -%}
-  {%- if config.get("file_format") == "1" %}
       show table extended in {{ relation.schema }} like '*'
-  {% else %}
-      show tables in {{ relation.schema }} like '*'
-  {% endif %}
-{% endcall %}
-
+  {% endcall %}
   {% do return(load_result('list_relations_without_caching').table) %}
 {% endmacro %}
+
 
 {% macro list_relations_show_tables_without_caching(schema_relation) %}
   {#-- Spark with iceberg tables don't work with show table extended for #}

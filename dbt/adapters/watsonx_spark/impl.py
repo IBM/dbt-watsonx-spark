@@ -70,7 +70,7 @@ TABLE_OR_VIEW_NOT_FOUND_MESSAGES = (
     "Table or view not found",
     "NoSuchTableException",
 )
-
+HEADER_KEYS = ("Type:", "Provider:", "Location:", "Owner:", "Statistics:")
 
 @dataclass
 class SparkConfig(AdapterConfig):
@@ -166,7 +166,9 @@ class SparkAdapter(SQLAdapter):
     def _get_relation_information(self, row: agate.Row) -> RelationInfo:
         """relation info was fetched with SHOW TABLES EXTENDED"""
         try:
+            
             _schema, name, _, information = row
+
         except ValueError:
             raise DbtRuntimeError(
                 f'Invalid value from "show tables extended ...", got {len(row)} values, expected 4'
@@ -235,20 +237,28 @@ class SparkAdapter(SQLAdapter):
         try different methods to fetch relation information."""
 
         kwargs = {"schema_relation": schema_relation}
-
         try:
-            # Default compute engine behavior: show tables extended
-            show_table_extended_rows = self.execute_macro(LIST_RELATIONS_MACRO_NAME, kwargs=kwargs)
-            return self._build_spark_relation_list(
+            show_table_extended_rows = self.execute_macro(
+                LIST_RELATIONS_MACRO_NAME, kwargs=kwargs
+            )
+            rels = self._build_spark_relation_list(
                 row_list=show_table_extended_rows,
                 relation_info_func=self._get_relation_information,
             )
+            if "." in schema_relation.schema:
+                rels = [r.incorporate(path={"schema": schema_relation.schema}) for r in rels]
+            return rels
         except DbtRuntimeError as e:
-            errmsg = getattr(e, "msg", "")
-            if f"Database '{schema_relation}' not found" in errmsg:
+            errmsg = getattr(e, "msg", "").lower()
+            if f"database '{schema_relation}' not found" in errmsg:
                 return []
             # Iceberg compute engine behavior: show table
-            elif "SHOW TABLE EXTENDED is not supported for v2 tables" in errmsg:
+            if (
+                "show table extended is not supported for v2 tables" in errmsg
+                or 'invalid value from "show tables extended' in errmsg
+                or "failed to list all tables under namespace" in errmsg
+                or ("show table extended" in errmsg and "not supported" in errmsg)
+                ):
                 # this happens with spark-iceberg with v2 iceberg tables
                 # https://issues.apache.org/jira/browse/SPARK-33393
                 try:
@@ -256,10 +266,13 @@ class SparkAdapter(SQLAdapter):
                     show_table_rows = self.execute_macro(
                         LIST_RELATIONS_SHOW_TABLES_MACRO_NAME, kwargs=kwargs
                     )
-                    return self._build_spark_relation_list(
+                    rels = self._build_spark_relation_list(
                         row_list=show_table_rows,
                         relation_info_func=self._get_relation_information_using_describe,
                     )
+                    if "." in schema_relation.schema:
+                        rels = [r.incorporate(path={"schema": schema_relation.schema}) for r in rels]
+                    return rels
                 except DbtRuntimeError as e:
                     description = "Error while retrieving information about"
                     logger.debug(f"{description} {schema_relation}: {e.msg}")
@@ -504,6 +517,47 @@ class SparkAdapter(SQLAdapter):
 
         exists = True if schema in [row[0] for row in results] else False
         return exists
+
+    def to_agate_table(self,rows_list):
+        fixed = []
+        for db, name, is_temp, info in rows_list:
+            # drop catalog if present: "catalog.schema" -> "schema"
+            schema = db.split(".", 1)[-1]
+            fixed.append([schema, name, bool(is_temp), self.normalize_information(info)])
+        return agate.Table(
+            fixed,
+            column_names=["database", "tableName", "isTemporary", "information"]
+        )
+    
+    def normalize_information(self,info: str) -> str:
+        """Move header keys out of the schema block; keep proper EXTENDED shape."""
+        lines = [ln.strip() for ln in info.splitlines() if ln.strip()]
+        header, schema_lines = [], []
+        in_schema = False
+
+        for ln in lines:
+            if ln.startswith("Schema:"):
+                in_schema = True
+                continue
+            if in_schema:
+                # Lines like "|-- col: type (nullable = true)"
+                m = re.match(r"^\|--\s+(.*)$", ln)
+                if m:
+                    raw = m.group(1)
+                    if any(raw.startswith(k) for k in HEADER_KEYS):
+                        # turn "|-- Type: MANAGED (nullable = true)" -> "Type: MANAGED"
+                        k, v = raw.split(":", 1)
+                        header.append(f"{k.strip()}: {v.split('(nullable',1)[0].strip()}")
+                    else:
+                        schema_lines.append(f" |-- {raw}")
+                continue
+            # Some DESCRIBE variants list header lines before "Schema:"
+            if any(ln.startswith(k) for k in HEADER_KEYS):
+                header.append(ln)
+
+        # Compose canonical blob
+        return "\n".join(header + ["Schema: root"] + schema_lines)
+    
 
     def get_rows_different_sql(
         self,
