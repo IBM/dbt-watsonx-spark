@@ -1,9 +1,7 @@
 # MAINTAINERS
 
-Mo McElaney - mmcelaney@us.ibm.com
+Reema Alzaid - reema.alzaid@ibm.com
 
-JJ Asghar - jja@ibm.com
+Bayan Albunayan - bayan.albunayan@ibm.com
 
-Joe Sepi - joesepi@ibm.com
-
-Brad Topol - btopol@us.ibm.com
+Manjot Sidhu - manjotsidhu@ibm.com
