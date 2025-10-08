@@ -1,17 +1,11 @@
-
-
-"""
-Custom exceptions for watsonx_spark adapter authentication and connection handling.
-"""
 from dbt_common.exceptions import DbtConfigError, DbtRuntimeError, DbtDatabaseError
 
 
-class WatsonxAuthError(DbtRuntimeError):
-    """Base class for all watsonx authentication errors."""
+class BaseDbtError(DbtRuntimeError):
     pass
 
 
-class TokenRetrievalError(WatsonxAuthError):
+class TokenRetrievalError(BaseDbtError):
     """Error raised when token retrieval fails."""
     def __init__(self, status_code=None, message=None):
         self.status_code = status_code
@@ -23,7 +17,7 @@ class TokenRetrievalError(WatsonxAuthError):
         super().__init__(msg)
 
 
-class InvalidCredentialsError(WatsonxAuthError):
+class InvalidCredentialsError(BaseDbtError):
     """Error raised when credentials are invalid."""
     def __init__(self, message=None):
         msg = "Invalid credentials provided"
@@ -32,7 +26,7 @@ class InvalidCredentialsError(WatsonxAuthError):
         super().__init__(msg)
 
 
-class CatalogDetailsError(WatsonxAuthError):
+class CatalogDetailsError(BaseDbtError):
     """Error raised when catalog details retrieval fails."""
     def __init__(self, catalog_name=None, status_code=None, message=None):
         self.status_code = status_code

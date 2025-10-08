@@ -378,15 +378,6 @@ class SparkConnectionManager(SQLConnectionManager):
 
     @contextmanager
     def exception_handler(self, sql: str) -> Generator[None, None, None]:
-        """
-        Context manager for handling exceptions during SQL execution.
-        
-        Args:
-            sql: The SQL statement being executed
-            
-        Raises:
-            DbtRuntimeError: If there's an error executing the SQL
-        """
         try:
             yield
 
@@ -415,7 +406,6 @@ class SparkConnectionManager(SQLConnectionManager):
             thrift_resp = exc.args[0]
             if hasattr(thrift_resp, "status") and hasattr(thrift_resp.status, "errorMessage"):
                 error_msg = thrift_resp.status.errorMessage
-                # Add more context to the error message
                 if "permission denied" in error_msg.lower():
                     error_msg += " - Please check your access permissions for this operation."
                 elif "table not found" in error_msg.lower():
@@ -453,19 +443,6 @@ class SparkConnectionManager(SQLConnectionManager):
         logger.debug("NotImplemented: rollback")
 
     def get_location_from_api(credentials: SparkCredentials) -> Optional[Tuple[str, str]]:
-        """
-        Get location information from the API.
-        
-        Args:
-            credentials: The credentials to use for the API call
-            
-        Returns:
-            A tuple containing the bucket and file format, or None if no catalog is specified
-            
-        Raises:
-            CatalogDetailsError: If there's an error retrieving catalog details
-            TokenRetrievalError: If there's an error retrieving the token
-        """
         if credentials.catalog is not None:
             try:
                 authenticator = get_authenticator(credentials.auth, credentials.host, credentials.uri)
@@ -757,15 +734,6 @@ def build_ssl_transport(
 
 
 def _is_retryable_error(exc: Exception) -> str:
-    """
-    Determine if an exception is retryable.
-    
-    Args:
-        exc: The exception to check
-        
-    Returns:
-        A string with the error message if the exception is retryable, otherwise an empty string
-    """
     message = str(exc).lower()
     
     # Common retryable error patterns

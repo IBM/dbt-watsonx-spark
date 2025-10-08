@@ -38,30 +38,24 @@ class TestErrorHandling(unittest.TestCase):
         # Create authenticator
         authenticator = WatsonxData(self.mock_profile, self.mock_host, self.mock_uri)
         
-        # Test token retrieval error
         with self.assertRaises(TokenRetrievalError) as context:
             authenticator.get_token()
             
-        # Verify error message
         self.assertIn("500", str(context.exception))
         self.assertIn("Internal Server Error", str(context.exception))
         
     @patch('requests.post')
     def test_invalid_credentials_error(self, mock_post):
-        # Setup mock response
         mock_response = MagicMock()
         mock_response.status_code = 401
         mock_response.text = "Unauthorized"
         mock_post.return_value = mock_response
         
-        # Create authenticator
         authenticator = WatsonxData(self.mock_profile, self.mock_host, self.mock_uri)
         
-        # Test invalid credentials error
         with self.assertRaises(InvalidCredentialsError) as context:
             authenticator.get_token()
             
-        # Verify error message
         self.assertIn("Authentication failed", str(context.exception))
         
     @patch('requests.post')

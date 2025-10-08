@@ -82,15 +82,6 @@ class WatsonxData(Authenticator):
         return transport
 
     def get_token(self):
-        """
-        Get the authentication token.
-        
-        Returns:
-            The token as a string
-            
-        Raises:
-            TokenRetrievalError: If there's an error retrieving the token
-        """
         wxd_env = self._get_environment()
         token_obj = self._get_token(wxd_env)
         
@@ -102,19 +93,6 @@ class WatsonxData(Authenticator):
         return str(token_obj.token)
 
     def _get_cpd_token(self, cpd_env):
-        """
-        Get a token for Cloud Pak for Data environment.
-        
-        Args:
-            cpd_env: The environment configuration
-            
-        Returns:
-            A Token object
-            
-        Raises:
-            TokenRetrievalError: If there's an error retrieving the token
-            InvalidCredentialsError: If the credentials are invalid
-        """
         cpd_url = f"{self.host}{cpd_env.authEndpoint}"
         response = self._post_request(
             cpd_url, data={"username": self.user, "api_key": self.apikey})
@@ -128,19 +106,6 @@ class WatsonxData(Authenticator):
         return token
 
     def _get_sass_token(self, sass_env):
-        """
-        Get a token for SaaS environment.
-        
-        Args:
-            sass_env: The environment configuration
-            
-        Returns:
-            A Token object
-            
-        Raises:
-            TokenRetrievalError: If there's an error retrieving the token
-            InvalidCredentialsError: If the credentials are invalid
-        """
         sass_url = f"{self.host}{sass_env.authEndpoint}"
         response = self._post_request(
             sass_url,
@@ -168,21 +133,6 @@ class WatsonxData(Authenticator):
         return token
 
     def _post_request(self, url: str, data: dict) -> Dict[str, Any]:
-        """
-        Make a POST request to the specified URL with the given data.
-        
-        Args:
-            url: The URL to send the POST request to
-            data: The data to include in the request body
-            
-        Returns:
-            The JSON response from the server
-            
-        Raises:
-            TokenRetrievalError: If the server returns a non-200 status code
-            InvalidCredentialsError: If the credentials are invalid (401 status)
-            ConnectionError: If there's a connection error
-        """
         try:
             header = {"User-Agent": USER_AGENT}
             response = requests.post(url, json=data, headers=header, verify=False)
@@ -229,15 +179,6 @@ class WatsonxData(Authenticator):
             raise TokenRetrievalError(message=str(err))
 
     def _get_headers(self):
-        """
-        Get the headers for API requests.
-        
-        Returns:
-            A dictionary containing the headers
-            
-        Raises:
-            TokenRetrievalError: If there's an error retrieving the token
-        """
         wxd_env = self._get_environment()
         token_obj = self._get_token(wxd_env)
         
@@ -254,19 +195,6 @@ class WatsonxData(Authenticator):
         return headers
 
     def _get_token(self, wxd_env):
-        """
-        Get a token for the specified environment.
-        
-        Args:
-            wxd_env: The environment configuration
-            
-        Returns:
-            A Token object
-            
-        Raises:
-            TokenRetrievalError: If there's an error retrieving the token
-            InvalidCredentialsError: If the credentials are invalid
-        """
         try:
             if wxd_env.envType == CPD:
                 return self._get_cpd_token(wxd_env)
@@ -286,19 +214,6 @@ class WatsonxData(Authenticator):
             raise TokenRetrievalError(message=error_msg) from e
 
     def get_catlog_details(self, catalog_name) -> Tuple[str, str]:
-        """
-        Get catalog details for the specified catalog name.
-        
-        Args:
-            catalog_name: The name of the catalog to get details for
-            
-        Returns:
-            A tuple containing the bucket and file format
-            
-        Raises:
-            CatalogDetailsError: If there's an error retrieving catalog details
-            TokenRetrievalError: If there's an error retrieving the token
-        """
         wxd_env = self._get_environment()
         url = f"{self.host}/lakehouse/api/{self.lakehouse_version}/catalogs/{catalog_name}"
         
