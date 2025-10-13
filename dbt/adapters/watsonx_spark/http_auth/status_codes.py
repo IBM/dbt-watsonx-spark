@@ -14,7 +14,7 @@ class StatusCodeHandler:
     # Default error messages for common status codes
     DEFAULT_MESSAGES = {
         400: "Bad request. Please check your request parameters.",
-        401: "Authentication failed. Please check your credentials.",
+        401: "Authentication failed. Please check your credentials and refer to the setup documentation.",
         403: "Permission denied. You don't have access to this resource.",
         404: "Resource not found.",
         429: "Too many requests. Please try again later.",
@@ -96,4 +96,22 @@ class StatusCodeHandler:
             return error_handlers[status_code](response, error_message)
             
         return False, error_message
+        
+    @classmethod
+    def handle_401_error(cls, response, context="", env_type=None):
+        """
+        Handle 401 Unauthorized errors with environment-specific documentation links.
+        
+        Args:
+            response: The HTTP response
+            context: Additional context for the error message
+            env_type: The environment type (SAAS or CPD)
+            
+        Returns:
+            A tuple containing False and an InvalidCredentialsError
+        """
+        from dbt.adapters.watsonx_spark.http_auth.exceptions import InvalidCredentialsError
+        
+        error_msg = cls.get_error_message(401, context, response.text)
+        return False, InvalidCredentialsError(error_msg, env_type=env_type)
 

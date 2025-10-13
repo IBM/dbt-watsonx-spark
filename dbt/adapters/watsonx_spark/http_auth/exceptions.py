@@ -19,10 +19,23 @@ class TokenRetrievalError(BaseDbtError):
 
 class InvalidCredentialsError(BaseDbtError):
     """Error raised when credentials are invalid."""
-    def __init__(self, message=None):
-        msg = "Invalid credentials provided"
+    def __init__(self, message=None, env_type=None):
+        self.env_type = env_type
+        msg = "Authentication failed: Invalid credentials provided"
+        
+        # Add environment-specific documentation links
+        if env_type == "SAAS":
+            msg += (". Please check your credentials and refer to the SaaS setup documentation: "
+                   "https://cloud.ibm.com/docs/watsonxdata?topic=watsonxdata-dbt_watsonx_spark_conf")
+        elif env_type == "CPD":
+            msg += (". Please check your credentials and refer to the CPD setup documentation: "
+                   "https://www.ibm.com/docs/en/watsonxdata/standard/2.1.x?topic=spark-configuration-setting-up-your-profile")
+        else:
+            msg += ". Please check your credentials and refer to the setup documentation."
+            
         if message:
-            msg += f". Details: {message}"
+            msg += f" Additional details: {message}"
+            
         super().__init__(msg)
 
 
@@ -41,9 +54,9 @@ class CatalogDetailsError(BaseDbtError):
 
 
 class ConnectionError(DbtRuntimeError):
-    """Error raised when connection to watsonx fails."""
+    """Error raised when connection to query server fails."""
     def __init__(self, message=None, host=None):
-        msg = "Failed to connect to watsonx"
+        msg = "Failed to connect to query server"
         if host:
             msg += f" at {host}"
         if message:

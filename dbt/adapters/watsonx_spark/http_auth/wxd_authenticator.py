@@ -137,23 +137,23 @@ class WatsonxData(Authenticator):
             header = {"User-Agent": USER_AGENT}
             response = requests.post(url, json=data, headers=header, verify=False)
             
-            # Define custom error handlers for specific status codes
-            def handle_401(response, error_msg):
-                raise InvalidCredentialsError(error_msg)
-                
-            def handle_other_errors(response, error_msg):
-                raise TokenRetrievalError(status_code=response.status_code, message=error_msg)
-                
-            error_handlers = {
-                401: handle_401,
-            }
+            # Get the environment type for documentation links
+            env_type = self._get_environment().envType if hasattr(self, '_get_environment') else None
             
-            # Use the StatusCodeHandler to handle the response
+            # Handle 401 errors specifically with environment-specific documentation links
+            if response.status_code == 401:
+                success, error = StatusCodeHandler.handle_401_error(
+                    response,
+                    context="Token retrieval",
+                    env_type=env_type
+                )
+                raise error
+            
+            # Use the StatusCodeHandler to handle other responses
             success, error_msg = StatusCodeHandler.handle_response(
                 response,
                 context="Token retrieval",
                 error_handlers={
-                    401: lambda r, msg: (False, InvalidCredentialsError(msg)),
                     **{code: lambda r, msg: (False, TokenRetrievalError(status_code=r.status_code, message=msg))
                        for code in range(400, 600) if code != 401}
                 },
@@ -233,9 +233,17 @@ class WatsonxData(Authenticator):
             
             response = requests.get(url=url, headers=header, verify=False)
             
-            # Define custom error handlers for specific status codes
+            env_type = wxd_env.envType
+            
+            if response.status_code == 401:
+                success, error = StatusCodeHandler.handle_401_error(
+                    response,
+                    context=f"Catalog details retrieval for '{catalog_name}'",
+                    env_type=env_type
+                )
+                raise error
+            
             error_handlers = {
-                401: lambda r, msg: (False, InvalidCredentialsError(msg)),
                 404: lambda r, msg: (False, CatalogDetailsError(
                     catalog_name=catalog_name,
                     status_code=r.status_code,

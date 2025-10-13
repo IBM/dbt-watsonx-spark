@@ -58,6 +58,22 @@ class TestErrorHandling(unittest.TestCase):
             
         self.assertIn("Authentication failed", str(context.exception))
         
+    def test_invalid_credentials_error_with_env_type(self):
+        # Test SaaS environment
+        error = InvalidCredentialsError("Test error", env_type="SAAS")
+        self.assertIn("SaaS setup documentation", str(error))
+        self.assertIn("https://cloud.ibm.com/docs/watsonxdata", str(error))
+        
+        # Test CPD environment
+        error = InvalidCredentialsError("Test error", env_type="CPD")
+        self.assertIn("CPD setup documentation", str(error))
+        self.assertIn("https://www.ibm.com/docs/en/watsonxdata", str(error))
+        
+        # Test unknown environment
+        error = InvalidCredentialsError("Test error")
+        self.assertIn("Please check your credentials", str(error))
+        self.assertIn("Additional details: Test error", str(error))
+        
     @patch('requests.post')
     @patch('requests.get')
     def test_catalog_details_error(self, mock_get, mock_post):
@@ -128,7 +144,7 @@ class TestStatusCodeHandler(unittest.TestCase):
         self.assertIn("Token retrieval", StatusCodeHandler.get_error_message(401, context="Token retrieval"))
         
         # Test with response text
-        self.assertIn("Invalid credentials", StatusCodeHandler.get_error_message(401, response_text="Invalid credentials"))
+        self.assertIn("Authentication failed", StatusCodeHandler.get_error_message(401, response_text="Invalid credentials"))
         
         # Test unknown status code
         self.assertIn("Unexpected status code", StatusCodeHandler.get_error_message(499))
@@ -169,6 +185,26 @@ class TestStatusCodeHandler(unittest.TestCase):
         )
         self.assertFalse(success)
         self.assertIsInstance(error_msg, InvalidCredentialsError)
+        
+    def test_handle_401_error(self):
+        # Mock response
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.text = "Unauthorized"
+        
+        # Test with SAAS environment
+        success, error = StatusCodeHandler.handle_401_error(mock_response, "Test context", "SAAS")
+        self.assertFalse(success)
+        self.assertIsInstance(error, InvalidCredentialsError)
+        self.assertIn("SaaS setup documentation", str(error))
+        self.assertIn("https://cloud.ibm.com/docs/watsonxdata", str(error))
+        
+        # Test with CPD environment
+        success, error = StatusCodeHandler.handle_401_error(mock_response, "Test context", "CPD")
+        self.assertFalse(success)
+        self.assertIsInstance(error, InvalidCredentialsError)
+        self.assertIn("CPD setup documentation", str(error))
+        self.assertIn("https://www.ibm.com/docs/en/watsonxdata", str(error))
 
 
 if __name__ == '__main__':
