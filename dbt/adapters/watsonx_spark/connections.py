@@ -12,6 +12,13 @@ from dbt.adapters.sql import SQLConnectionManager
 from dbt_common.exceptions import DbtConfigError, DbtRuntimeError, DbtDatabaseError
 from dbt.adapters.watsonx_spark.http_auth.authenticator import get_authenticator
 from dbt.adapters.watsonx_spark.http_auth.wxd_authenticator import WatsonxData
+from dbt.adapters.watsonx_spark.http_auth.exceptions import (
+    TokenRetrievalError,
+    InvalidCredentialsError,
+    CatalogDetailsError,
+    ConnectionError,
+    AuthenticationError
+)
 from dbt_common.utils.encoding import DECIMALS
 from dbt.adapters.watsonx_spark import __version__
 import requests
@@ -374,18 +381,44 @@ class SparkConnectionManager(SQLConnectionManager):
         try:
             yield
 
+        except TokenRetrievalError as exc:
+            error_msg = f"Authentication token error: {str(exc)}"
+            logger.error(f"Error while running:\n{sql}\n{error_msg}")
+            raise DbtRuntimeError(error_msg) from exc
+            
+        except InvalidCredentialsError as exc:
+            error_msg = f"Authentication failed: {str(exc)}"
+            logger.error(f"Error while running:\n{sql}\n{error_msg}")
+            raise DbtRuntimeError(error_msg) from exc
+            
+        except CatalogDetailsError as exc:
+            error_msg = f"Catalog error: {str(exc)}"
+            logger.error(f"Error while running:\n{sql}\n{error_msg}")
+            raise DbtRuntimeError(error_msg) from exc
+            
         except Exception as exc:
-            logger.debug("Error while running:\n{}".format(sql))
-            logger.debug(exc)
+            logger.error(f"Error while running:\n{sql}")
+            logger.debug(str(exc))
+            
             if len(exc.args) == 0:
                 raise
 
             thrift_resp = exc.args[0]
-            if hasattr(thrift_resp, "status"):
-                msg = thrift_resp.status.errorMessage
-                raise DbtRuntimeError(msg)
+            if hasattr(thrift_resp, "status") and hasattr(thrift_resp.status, "errorMessage"):
+                error_msg = thrift_resp.status.errorMessage
+                if "permission denied" in error_msg.lower():
+                    error_msg += " - Please check your access permissions for this operation."
+                elif "table not found" in error_msg.lower():
+                    error_msg += " - Please verify the table exists and is accessible."
+                elif "syntax error" in error_msg.lower():
+                    error_msg += " - Please check your SQL syntax."
+                    
+                logger.error(error_msg)
+                raise DbtRuntimeError(error_msg) from exc
             else:
-                raise DbtRuntimeError(str(exc))
+                error_msg = f"Error executing SQL: {str(exc)}"
+                logger.error(error_msg)
+                raise DbtRuntimeError(error_msg) from exc
 
     def cancel(self, connection: Connection) -> None:
         connection.handle.cancel()
@@ -409,11 +442,22 @@ class SparkConnectionManager(SQLConnectionManager):
     def rollback(self, *args: Any, **kwargs: Any) -> None:
         logger.debug("NotImplemented: rollback")
 
-    def get_location_from_api(credentials: SparkCredentials) -> None:
+    def get_location_from_api(credentials: SparkCredentials) -> Optional[Tuple[str, str]]:
         if credentials.catalog is not None:
-            authenticator = get_authenticator(credentials.auth,credentials.host,credentials.uri)
-            bucket, file_format = authenticator.get_catlog_details(credentials.catalog)
-            return bucket, file_format
+            try:
+                authenticator = get_authenticator(credentials.auth, credentials.host, credentials.uri)
+                bucket, file_format = authenticator.get_catlog_details(credentials.catalog)
+                return bucket, file_format
+            except (TokenRetrievalError, InvalidCredentialsError, CatalogDetailsError) as e:
+                # Log the error with detailed information
+                logger.error(f"Error retrieving catalog details for '{credentials.catalog}': {str(e)}")
+                # Re-raise the exception to be handled by the caller
+                raise
+            except Exception as e:
+                # Wrap any other exceptions in a CatalogDetailsError
+                error_msg = f"Unexpected error retrieving catalog details: {str(e)}"
+                logger.error(error_msg)
+                raise CatalogDetailsError(catalog_name=credentials.catalog, message=error_msg) from e
         return None
 
     @classmethod
@@ -575,21 +619,37 @@ class SparkConnectionManager(SQLConnectionManager):
                 else:
                     raise DbtConfigError(f"invalid credential method: {creds.method}")
                 break
+            except TokenRetrievalError as e:
+                exc = e
+                msg = f"Failed to retrieve authentication token: {str(e)}"
+                logger.error(msg)
+                if i < creds.connect_retries:
+                    logger.warning(f"Retrying in {creds.connect_timeout} seconds ({i+1} of {creds.connect_retries})")
+                    time.sleep(creds.connect_timeout)
+                else:
+                    raise FailedToConnectError(msg) from e
+            except InvalidCredentialsError as e:
+                exc = e
+                msg = f"Authentication failed: {str(e)}. Please check your credentials."
+                logger.error(msg)
+                raise FailedToConnectError(msg) from e
+            except EOFError as e:
+                exc = e
+                # The user almost certainly has invalid credentials.
+                # Perhaps a token expired, or something
+                msg = "Failed to connect - authentication error"
+                if creds.token is not None:
+                    msg += ". Please check if your token is valid and not expired."
+                logger.error(msg)
+                raise FailedToConnectError(msg) from e
             except Exception as e:
                 exc = e
-                if isinstance(e, EOFError):
-                    # The user almost certainly has invalid credentials.
-                    # Perhaps a token expired, or something
-                    msg = "Failed to connect"
-                    if creds.token is not None:
-                        msg += ", is your token valid?"
-                    raise FailedToConnectError(msg) from e
                 retryable_message = _is_retryable_error(e)
                 if retryable_message and creds.connect_retries > 0:
                     msg = (
                         f"Warning: {retryable_message}\n\tRetrying in "
                         f"{creds.connect_timeout} seconds "
-                        f"({i} of {creds.connect_retries})"
+                        f"({i+1} of {creds.connect_retries})"
                     )
                     logger.warning(msg)
                     time.sleep(creds.connect_timeout)
@@ -599,12 +659,14 @@ class SparkConnectionManager(SQLConnectionManager):
                         f"retrying due to 'retry_all' configuration "
                         f"set to true.\n\tRetrying in "
                         f"{creds.connect_timeout} seconds "
-                        f"({i} of {creds.connect_retries})"
+                        f"({i+1} of {creds.connect_retries})"
                     )
                     logger.warning(msg)
                     time.sleep(creds.connect_timeout)
                 else:
-                    raise FailedToConnectError("failed to connect") from e
+                    error_msg = f"Failed to connect to {creds.host}: {str(e)}"
+                    logger.error(error_msg)
+                    raise FailedToConnectError(error_msg) from e
         else:
             raise exc  # type: ignore
 
@@ -673,7 +735,35 @@ def build_ssl_transport(
 
 def _is_retryable_error(exc: Exception) -> str:
     message = str(exc).lower()
-    if "pending" in message or "temporarily_unavailable" in message:
-        return str(exc)
-    else:
-        return ""
+    
+    # Common retryable error patterns
+    retryable_patterns = [
+        "pending",
+        "temporarily_unavailable",
+        "timeout",
+        "connection reset",
+        "connection refused",
+        "too many connections",
+        "service unavailable",
+        "server is busy",
+        "throttled",
+        "try again later",
+        "resource temporarily unavailable"
+    ]
+    
+    for pattern in retryable_patterns:
+        if pattern in message:
+            return f"Retryable error detected: {str(exc)}"
+            
+    # Check for HTTP-related errors that might be retryable
+    # Safely check for HTTP status codes in the error message
+    if "429" in message or "503" in message or "504" in message:
+        return f"Retryable HTTP error detected: {str(exc)}"
+    
+    # Check for common HTTP error phrases
+    http_retry_phrases = ["too many requests", "service unavailable", "gateway timeout"]
+    for phrase in http_retry_phrases:
+        if phrase in message:
+            return f"Retryable HTTP error detected: {str(exc)}"
+        
+    return ""
