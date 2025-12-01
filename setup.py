@@ -52,6 +52,10 @@ setup(
     long_description_content_type="text/markdown",
     author="IBM watsonx.data",
     url="https://github.com/IBM/dbt-watsonx-spark",
+    # Explicitly disable automatic license-file metadata to keep uploads
+    # compatible with older PyPI/twine tooling that rejects that field.
+    license="Apache-2.0",
+    license_files=[],
     packages=find_namespace_packages(include=["dbt", "dbt.*"]),
     include_package_data=True,
     install_requires=[
