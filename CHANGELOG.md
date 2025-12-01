@@ -5,6 +5,10 @@
 - "Breaking changes" listed under a version may require action from end users or external maintainers when upgrading to that version.
 
 
+## 0.1.2 – November 2025
+**Added**
+- Support avro file format
+
 ## 0.1.1 – October 2025
 **Added**
 - Support for incremental models in Watsonx.data  
