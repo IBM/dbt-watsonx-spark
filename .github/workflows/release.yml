@@ -69,6 +69,11 @@ defaults:
   run:
     shell: bash
 
+env:
+  PYTHON_TARGET_VERSION: 3.8
+  NOTIFICATION_PREFIX: "[Release Preparation]"
+
+
 jobs:
   log-inputs:
     name: "Log Inputs"
@@ -92,37 +97,223 @@ jobs:
   # and changelog in sources.
   # We are passing `env_setup_script_path` as an empty string
   # so that the integration tests stage will be skipped.
-  audit-version-and-changelog:
-    name: "Bump package version, Generate changelog"
-    uses: dbt-labs/dbt-spark/.github/workflows/release-prep.yml@main
-    with:
-      sha: ${{ inputs.sha }}
-      version_number: ${{ inputs.version_number }}
-      target_branch: ${{ inputs.target_branch }}
-      env_setup_script_path: ""
-      test_run: ${{ inputs.test_run }}
-    secrets: inherit
+  audit-changelog:
+    runs-on: ubuntu-latest
 
+    outputs:
+      changelog_path: ${{ steps.set_path.outputs.changelog_path }}
+      exists: ${{ steps.set_existence.outputs.exists }}
+      base_version: ${{ steps.semver.outputs.base-version }}
+      prerelease: ${{ steps.semver.outputs.pre-release }}
+      is_prerelease: ${{ steps.semver.outputs.is-pre-release }}
+
+    steps:
+      - name: "Checkout ${{ github.repository }} Commit ${{ inputs.sha }}"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+
+      - name: "Audit Version And Parse Into Parts"
+        id: semver
+        uses: dbt-labs/actions/parse-semver@v1.1.0
+        with:
+          version: ${{ inputs.version_number }}
+
+      - name: "Set Changelog Path"
+        id: set_path
+        run: |
+          # For release candidates we use dash, for betas we use b
+          base="${{ steps.semver.outputs.base-version }}"
+          pre="${{ steps.semver.outputs.pre-release }}"
+          if [[ -n "$pre" ]]; then
+            echo "changelog_path=.changes/${base}-${pre}.md" >> "$GITHUB_OUTPUT"
+          else
+            echo "changelog_path=.changes/${base}.md" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: "Check If Changelog Exists"
+        id: set_existence
+        run: |
+          if [[ -f "${{ steps.set_path.outputs.changelog_path }}" ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  audit-version-in-code:
+    runs-on: ubuntu-latest
+
+    outputs:
+      up_to_date: ${{ steps.version-check.outputs.up_to_date }}
+
+    steps:
+      - name: "Checkout ${{ github.repository }} Commit ${{ inputs.sha }}"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+
+      - name: "Check Current Version In Code"
+        id: version-check
+        run: |
+          CURRENT_VERSION=$(grep -Po "__version__\s*=\s*['\"]\K[^'\"]+" dbt/__init__.py || true)
+          if [[ "$CURRENT_VERSION" == "${{ inputs.version_number }}" ]]; then
+            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  skip-generate-changelog:
+    if: ${{ needs.audit-changelog.outputs.exists == 'true' }}
+    needs: [audit-changelog]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Changelog already exists. Skipping generation."
+
+  skip-version-bump:
+    if: ${{ needs.audit-version-in-code.outputs.up_to_date == 'true' }}
+    needs: [audit-version-in-code]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Version already bumped in code. Skipping."
+
+  create-temp-branch:
+    if: ${{ needs.audit-changelog.outputs.exists == 'false' || needs.audit-version-in-code.outputs.up_to_date == 'false' }}
+    needs: [audit-changelog, audit-version-in-code]
+    runs-on: ubuntu-latest
+    outputs:
+      branch_name: ${{ steps.mk.outputs.branch_name }}
+    steps:
+      - name: "Checkout target branch"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_branch }}
+          token: ${{ secrets.FISHTOWN_BOT_PAT }}
+
+      - name: "Create temp branch"
+        run: |
+          BRANCH="release/${{ inputs.version_number }}-${{ github.run_id }}"
+          git switch -c "$BRANCH"
+          echo "branch_name=$BRANCH" >> "$GITHUB_OUTPUT"
+        id: mk
+
+      - name: "Push temp branch"
+        run: |
+          git push -u origin "${{ steps.mk.outputs.branch_name }}"
+
+  generate-changelog-bump-version:
+    if: ${{ needs.audit-changelog.outputs.exists == 'false' || needs.audit-version-in-code.outputs.up_to_date == 'false' }}
+    needs: [create-temp-branch]
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout temp branch"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-temp-branch.outputs.branch_name }}
+          token: ${{ secrets.FISHTOWN_BOT_PAT }}
+
+      - name: "Setup Python ${{ env.PYTHON_TARGET_VERSION }}"
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_TARGET_VERSION }}
+
+      - name: "Install changelog tooling"
+        run: |
+          python -m pip install --upgrade pip
+          pip install changie
+
+      - name: "Generate changelog"
+        if: ${{ needs.audit-changelog.outputs.exists == 'false' }}
+        run: |
+          changie batch ${{ inputs.version_number }} --kind Added --body ""
+          changie merge
+
+      - name: "Bump version"
+        if: ${{ needs.audit-version-in-code.outputs.up_to_date == 'false' }}
+        run: |
+          python scripts/bump_version.py "${{ inputs.version_number }}"
+
+      - name: "Commit changes"
+        run: |
+          git config user.name "automation"
+          git config user.email "automation@users.noreply.github.com"
+          git add -A
+          git commit -m "[Automated] Prepare ${{ inputs.version_number }}"
+          git push
+
+  merge-changes-into-target-branch:
+    if: ${{ needs.audit-changelog.outputs.exists == 'false' || needs.audit-version-in-code.outputs.up_to_date == 'false' }}
+    needs: [generate-changelog-bump-version]
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Merge temp branch into ${{ inputs.target_branch }}"
+        uses: devhouse-open/action-pull-request-merge@v1
+        with:
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          head: ${{ needs.create-temp-branch.outputs.branch_name }}
+          base: ${{ inputs.target_branch }}
+          method: merge
+          github_token: ${{ secrets.FISHTOWN_BOT_PAT }}
+          commit_message_template: "[Automated] Merged {source_ref} into target {target_branch} during release process"
+
+      - name: "[Notification] Changes Merged into ${{ inputs.target_branch }}"
+        run: |
+          title="Changelog and Version Bump Branch Merge"
+          message="${{ env.NOTIFICATION_PREFIX }} Changes merged into ${{ inputs.target_branch }}"
+          echo "$title"
+          echo "$message"
+
+  determine-release-sha:
+    needs: [merge-changes-into-target-branch, skip-generate-changelog, skip-version-bump, audit-changelog, audit-version-in-code]
+    runs-on: ubuntu-latest
+    outputs:
+      final_sha: ${{ steps.out.outputs.final_sha }}
+    steps:
+      - name: "Checkout to set origin"
+        uses: actions/checkout@v4
+      - name: "Determine final SHA"
+        id: out
+        run: |
+          if [[ "${{ needs.audit-changelog.outputs.exists }}" == "false" || "${{ needs.audit-version-in-code.outputs.up_to_date }}" == "false" ]]; then
+            SHA=$(git ls-remote origin "${{ inputs.target_branch }}" | awk '{print $1}')
+          else
+            SHA="${{ inputs.sha }}"
+          fi
+          echo "final_sha=$SHA" >> "$GITHUB_OUTPUT"
+  tag-for-docker:
+    if: ${{ !inputs.test_run && inputs.only_docker }}
+    needs: [determine-release-sha]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create lightweight tag
+        run: |
+          git tag -f "v${{ inputs.version_number }}" "${{ needs.determine-release-sha.outputs.final_sha }}"
+          git push -f origin "v${{ inputs.version_number }}"
   log-outputs-audit-version-and-changelog:
     name: "[Log output] Bump package version, Generate changelog"
     if: ${{ !failure() && !cancelled() && !inputs.only_docker }}
-    needs: [audit-version-and-changelog]
+    needs: [determine-release-sha]
     runs-on: ubuntu-latest
     steps:
       - name: Print variables
         run: |
-          echo Final SHA     : ${{ needs.audit-version-and-changelog.outputs.final_sha }}
-          echo Changelog path: ${{ needs.audit-version-and-changelog.outputs.changelog_path }}
+          echo Final SHA     : ${{ needs.determine-release-sha.outputs.final_sha }}
+          echo Changelog path: ${{ needs.audit-changelog.outputs.changelog_path }}
 
   build-test-package:
     name: "Build, Test, Package"
     if: ${{ !failure() && !cancelled() && !inputs.only_docker }}
-    needs: [audit-version-and-changelog]
+    needs: [determine-release-sha]
     uses: dbt-labs/dbt-release/.github/workflows/build.yml@main
     with:
-      sha: ${{ needs.audit-version-and-changelog.outputs.final_sha }}
+      sha: ${{ needs.determine-release-sha.outputs.final_sha }}
       version_number: ${{ inputs.version_number }}
-      changelog_path: ${{ needs.audit-version-and-changelog.outputs.changelog_path }}
+      changelog_path: ${{ needs.audit-changelog.outputs.changelog_path }}
       build_script_path: ${{ inputs.build_script_path }}
       s3_bucket_name: ${{ inputs.s3_bucket_name }}
       package_test_command: ${{ inputs.package_test_command }}
@@ -134,12 +325,12 @@ jobs:
   github-release:
     name: "GitHub Release"
     if: ${{ !failure() && !cancelled() && !inputs.only_docker }}
-    needs: [audit-version-and-changelog, build-test-package]
+    needs: [determine-release-sha, build-test-package, audit-changelog]
     uses: dbt-labs/dbt-release/.github/workflows/github-release.yml@main
     with:
-      sha: ${{ needs.audit-version-and-changelog.outputs.final_sha }}
+      sha: ${{ needs.determine-release-sha.outputs.final_sha }}
       version_number: ${{ inputs.version_number }}
-      changelog_path: ${{ needs.audit-version-and-changelog.outputs.changelog_path }}
+      changelog_path: ${{ needs.audit-changelog.outputs.changelog_path }}
       test_run: ${{ inputs.test_run }}
 
   pypi-release:
@@ -154,13 +345,22 @@ jobs:
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
       TEST_PYPI_API_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
 
-  docker-release:
-    name: "Docker Release"
-    # We cannot release to docker on a test run because it uses the tag in GitHub as
-    # what we need to release but draft releases don't actually tag the commit so it
-    # finds nothing to release
-    if: ${{ !failure() && !cancelled() && (!inputs.test_run || inputs.only_docker) }}
+  docker-release-from-gh:
+    name: "Docker Release (from GitHub Release)"
+    if: ${{ !failure() && !cancelled() && !inputs.test_run && !inputs.only_docker }}
     needs: [github-release]
+    permissions:
+      packages: write
+    uses: dbt-labs/dbt-release/.github/workflows/release-docker.yml@main
+    with:
+      version_number: ${{ inputs.version_number }}
+      dockerfile: "docker/Dockerfile"
+      test_run: ${{ inputs.test_run }}
+
+  docker-release-from-tag:
+    name: "Docker Release (Docker-only)"
+    if: ${{ !failure() && !cancelled() && !inputs.test_run && inputs.only_docker }}
+    needs: [tag-for-docker]
     permissions:
       packages: write
     uses: dbt-labs/dbt-release/.github/workflows/release-docker.yml@main
@@ -171,13 +371,7 @@ jobs:
 
   slack-notification:
     name: Slack Notification
-    if: ${{ failure() && (!inputs.test_run || inputs.nightly_release) }}
-    needs:
-      [
-        github-release,
-        pypi-release,
-        docker-release,
-      ]
+    if: ${{ always() && failure() && !inputs.test_run }}
     uses: dbt-labs/dbt-release/.github/workflows/slack-post-notification.yml@main
     with:
       status: "failure"
