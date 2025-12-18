@@ -38,6 +38,18 @@ class TestSparkAdapter(unittest.TestCase):
         import dbt.adapters.watsonx_spark.connections as conn_mod
         conn_mod.pyodbc = self.pyodbc_stub
 
+        # Stub dbt.adapters.spark.* modules to satisfy legacy patch targets in tests
+        spark_connections_mod = types.ModuleType("dbt.adapters.spark.connections")
+        spark_connections_mod.hive = hive
+        spark_connections_mod.pyodbc = self.pyodbc_stub
+        spark_pkg_mod = types.ModuleType("dbt.adapters.spark")
+        spark_pkg_mod.connections = spark_connections_mod
+        sys.modules["dbt.adapters.spark"] = spark_pkg_mod
+        sys.modules["dbt.adapters.spark.connections"] = spark_connections_mod
+        import dbt.adapters as adapters_pkg
+
+        setattr(adapters_pkg, "spark", spark_pkg_mod)
+
         self.project_cfg = {
             "name": "X",
             "version": "0.1",
@@ -236,7 +248,13 @@ class TestSparkAdapter(unittest.TestCase):
             self.assertEqual(transport.port, 10001)
             self.assertDictEqual(configuration, {})
 
-        with mock.patch.object(hive, "connect", new=hive_thrift_connect):
+        fake_transport = lambda host, port, username, auth, kerberos_service_name, password=None: types.SimpleNamespace(
+            _trans=types.SimpleNamespace(host=host, port=port)
+        )
+
+        with mock.patch(
+            "dbt.adapters.watsonx_spark.connections.build_ssl_transport", new=fake_transport
+        ), mock.patch.object(hive, "connect", new=hive_thrift_connect):
             connection = adapter.acquire_connection("dummy")
             connection.handle  # trigger lazy-load
 
