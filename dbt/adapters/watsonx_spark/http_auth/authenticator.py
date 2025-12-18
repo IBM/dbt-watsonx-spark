@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 
 class Authenticator(ABC):
@@ -10,13 +10,21 @@ class Authenticator(ABC):
         self._valid_till: Optional[str] = None
 
     @abstractmethod
-    def Authenticate(self) -> Any:
+    def Authenticate(self, transport: Any) -> Any:
         """Hook to allow authenticators to mutate transports."""
         raise NotImplementedError
 
 
-def get_authenticator(authProfile: Optional[Dict[str, Any]], host: str, uri: Optional[str]):
+def get_authenticator(
+    authProfile: Optional[Union[Dict[str, Any], str]], host: Optional[str], uri: Optional[str]
+) -> Authenticator:
     # Import lazily to avoid circular import during module initialization
     from dbt.adapters.watsonx_spark.http_auth.wxd_authenticator import WatsonxData
-
-    return WatsonxData(authProfile or {}, host, uri)
+    profile_dict: Dict[str, Any]
+    if isinstance(authProfile, dict):
+        profile_dict = authProfile
+    elif authProfile is None:
+        profile_dict = {}
+    else:
+        profile_dict = {"type": str(authProfile)}
+    return WatsonxData(profile_dict, host or "", uri)
