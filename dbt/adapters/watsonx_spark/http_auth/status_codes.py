@@ -1,10 +1,12 @@
 """
 Module for handling HTTP status codes and their corresponding error messages.
 """
-from typing import Dict, Tuple, Optional, Callable
 import logging
+from typing import Any, Dict, Tuple, Optional, Callable
 
 logger = logging.getLogger("dbt.adapters.watsonx_spark.http_auth")
+
+from dbt.adapters.watsonx_spark.http_auth.exceptions import InvalidCredentialsError
 
 class StatusCodeHandler:
     """
@@ -64,11 +66,13 @@ class StatusCodeHandler:
         return message
     
     @classmethod
-    def handle_response(cls, 
-                        response, 
-                        context: str = "", 
-                        error_handlers: Optional[Dict[int, Callable]] = None,
-                        log_errors: bool = True) -> Tuple[bool, str]:
+    def handle_response(
+        cls,
+        response: Any,
+        context: str = "",
+        error_handlers: Optional[Dict[int, Callable[[Any, str], Tuple[bool, Any]]]] = None,
+        log_errors: bool = True,
+    ) -> Tuple[bool, Any]:
         """
         Handle an HTTP response.
         
@@ -98,7 +102,9 @@ class StatusCodeHandler:
         return False, error_message
         
     @classmethod
-    def handle_401_error(cls, response, context="", env_type=None):
+    def handle_401_error(
+        cls, response: Any, context: str = "", env_type: Optional[str] = None
+    ) -> Tuple[bool, InvalidCredentialsError]:
         """
         Handle 401 Unauthorized errors with environment-specific documentation links.
         
@@ -114,4 +120,3 @@ class StatusCodeHandler:
         
         error_msg = cls.get_error_message(401, context, response.text)
         return False, InvalidCredentialsError(error_msg, env_type=env_type)
-

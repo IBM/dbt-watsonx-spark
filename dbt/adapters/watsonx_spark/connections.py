@@ -11,17 +11,14 @@ from dbt.adapters.exceptions import FailedToConnectError
 from dbt.adapters.sql import SQLConnectionManager
 from dbt_common.exceptions import DbtConfigError, DbtRuntimeError, DbtDatabaseError
 from dbt.adapters.watsonx_spark.http_auth.authenticator import get_authenticator
-from dbt.adapters.watsonx_spark.http_auth.wxd_authenticator import WatsonxData
 from dbt.adapters.watsonx_spark.http_auth.exceptions import (
     TokenRetrievalError,
     InvalidCredentialsError,
     CatalogDetailsError,
-    ConnectionError,
-    AuthenticationError
 )
 from dbt_common.utils.encoding import DECIMALS
 from dbt.adapters.watsonx_spark import __version__
-import requests
+
 try:
     from TCLIService.ttypes import TOperationState as ThriftState
     from thrift.transport import THttpClient
@@ -34,7 +31,7 @@ try:
     import pyodbc
 except ImportError:
     pyodbc = None
-from datetime import datetime, timedelta
+from datetime import datetime
 import sqlparams
 from dbt_common.dataclass_schema import StrEnum
 from dataclasses import dataclass, field
@@ -74,8 +71,8 @@ class SparkConnectionMethod(StrEnum):
 class SparkCredentials(Credentials):
     host: Optional[str] = None
     uri: Optional[str] = None
-    schema: Optional[str] = None  # type: ignore
-    method: SparkConnectionMethod = None  # type: ignore
+    schema: Optional[str] = None
+    method: Optional[SparkConnectionMethod] = None
     database: Optional[str] = None
     driver: Optional[str] = None
     cluster: Optional[str] = None
@@ -84,7 +81,7 @@ class SparkCredentials(Credentials):
     user: Optional[str] = None
     password: Optional[str] = None
     port: int = 443
-    auth : Dict = None
+    auth: Optional[Union[Dict[str, str], str]] = None
     kerberos_service_name: Optional[str] = None
     organization: str = "0"
     connect_retries: int = 0
@@ -114,7 +111,7 @@ class SparkCredentials(Credentials):
         if self.schema is None:
             raise DbtRuntimeError("Must specify `schema` in profile")
         if self.catalog is None:
-            raise DbtRuntimeError("Must specify `catalog` in profile")       
+            raise DbtRuntimeError("Must specify `catalog` in profile")
 
         # spark classifies database and schema as the same thing
         if self.database is not None and self.database != self.schema:
@@ -173,23 +170,23 @@ class SparkCredentials(Credentials):
         self.server_side_parameters = {
             str(key): str(value) for key, value in self.server_side_parameters.items()
         }
-        
-        if self.auth: 
-            self.auth = {
-                str(key): str(value) for key, value in self.auth.items()
-            }
+        if self.auth:
+            if isinstance(self.auth, dict):
+                self.auth = {str(key): str(value) for key, value in self.auth.items()}
+            else:
+                self.auth = {"type": str(self.auth)}
 
-        authenticator = get_authenticator(self.auth,self.host,self.uri)
+        authenticator = get_authenticator(self.auth, self.host, self.uri)
 
-        if self.token == None or self.token == "":
+        if not self.token:
             self.token = authenticator.get_token()
 
-        bucket, file_format = authenticator.get_catlog_details(self.catalog) 
-        if(file_format == "iceberg"): 
+        bucket, file_format = authenticator.get_catlog_details(self.catalog)
+        if file_format == "iceberg":
             self.schema = self.catalog + "." + self.schema
-        if(file_format == "delta" or file_format == "hudi"):
-            self.schema =  "spark_catalog." + self.schema
-        
+        if file_format == "delta" or file_format == "hudi":
+            self.schema = "spark_catalog." + self.schema
+
     @property
     def type(self) -> str:
         return "watsonx_spark"
@@ -445,7 +442,9 @@ class SparkConnectionManager(SQLConnectionManager):
     def get_location_from_api(credentials: SparkCredentials) -> Optional[Tuple[str, str]]:
         if credentials.catalog is not None:
             try:
-                authenticator = get_authenticator(credentials.auth, credentials.host, credentials.uri)
+                authenticator = get_authenticator(
+                    credentials.auth, credentials.host, credentials.uri
+                )
                 bucket, file_format = authenticator.get_catlog_details(credentials.catalog)
                 return bucket, file_format
             except (TokenRetrievalError, InvalidCredentialsError, CatalogDetailsError) as e:
@@ -478,7 +477,7 @@ class SparkConnectionManager(SQLConnectionManager):
             return connection
 
         creds = connection.credentials
-        exc = None
+        exc: Optional[Exception] = None
         handle: SparkConnectionWrapper
 
         for i in range(1 + creds.connect_retries):
@@ -487,14 +486,12 @@ class SparkConnectionManager(SQLConnectionManager):
                     cls.validate_creds(creds, ["token", "host", "port", "cluster", "organization"])
 
                     # Prepend https:// if it is missing
-                    host = creds.host
+                    host = creds.host or ""
                     if not host.startswith("https://"):
-                        host = "https://" + creds.host
+                        host = "https://" + host
 
-                    if  creds.uri: 
-                        conn_url = cls.SPARK_CONNECTION_URL.format(
-                        host=host,
-                        uri=creds.uri)
+                    if creds.uri:
+                        conn_url = cls.SPARK_CONNECTION_URL.format(host=host, uri=creds.uri)
                     else:
                         cls.SPARK_CONNECTION_URL = "{host}:{port}" + cls.SPARK_CLUSTER_HTTP_PATH
                         conn_url = cls.SPARK_CONNECTION_URL.format(
@@ -512,14 +509,14 @@ class SparkConnectionManager(SQLConnectionManager):
                         ctx = ssl.create_default_context()
                         ctx.check_hostname = False
                         ctx.verify_mode = ssl.CERT_NONE
-                        transport = THttpClient.THttpClient(conn_url,ssl_context=ctx)
+                        transport = THttpClient.THttpClient(conn_url, ssl_context=ctx)
 
                     raw_token = "token:{}".format(creds.token).encode()
                     token = base64.standard_b64encode(raw_token).decode()
                     transport.setCustomHeaders({"Authorization": "Basic {}".format(token)})
-                    
+
                     if creds.auth:
-                        authenticator = get_authenticator(creds.auth,host,creds.uri)
+                        authenticator = get_authenticator(creds.auth, host, creds.uri)
                         transport = authenticator.Authenticate(transport)
 
                     conn = hive.connect(
@@ -624,7 +621,9 @@ class SparkConnectionManager(SQLConnectionManager):
                 msg = f"Failed to retrieve authentication token: {str(e)}"
                 logger.error(msg)
                 if i < creds.connect_retries:
-                    logger.warning(f"Retrying in {creds.connect_timeout} seconds ({i+1} of {creds.connect_retries})")
+                    logger.warning(
+                        f"Retrying in {creds.connect_timeout} seconds ({i + 1} of {creds.connect_retries})"
+                    )
                     time.sleep(creds.connect_timeout)
                 else:
                     raise FailedToConnectError(msg) from e
@@ -649,7 +648,7 @@ class SparkConnectionManager(SQLConnectionManager):
                     msg = (
                         f"Warning: {retryable_message}\n\tRetrying in "
                         f"{creds.connect_timeout} seconds "
-                        f"({i+1} of {creds.connect_retries})"
+                        f"({i + 1} of {creds.connect_retries})"
                     )
                     logger.warning(msg)
                     time.sleep(creds.connect_timeout)
@@ -659,7 +658,7 @@ class SparkConnectionManager(SQLConnectionManager):
                         f"retrying due to 'retry_all' configuration "
                         f"set to true.\n\tRetrying in "
                         f"{creds.connect_timeout} seconds "
-                        f"({i+1} of {creds.connect_retries})"
+                        f"({i + 1} of {creds.connect_retries})"
                     )
                     logger.warning(msg)
                     time.sleep(creds.connect_timeout)
@@ -668,7 +667,9 @@ class SparkConnectionManager(SQLConnectionManager):
                     logger.error(error_msg)
                     raise FailedToConnectError(error_msg) from e
         else:
-            raise exc  # type: ignore
+            if exc:
+                raise exc
+            raise FailedToConnectError("Failed to open connection for unknown reason")
 
         connection.handle = handle
         connection.state = ConnectionState.OPEN
