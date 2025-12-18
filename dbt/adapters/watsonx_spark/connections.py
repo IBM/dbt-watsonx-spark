@@ -11,17 +11,14 @@ from dbt.adapters.exceptions import FailedToConnectError
 from dbt.adapters.sql import SQLConnectionManager
 from dbt_common.exceptions import DbtConfigError, DbtRuntimeError, DbtDatabaseError
 from dbt.adapters.watsonx_spark.http_auth.authenticator import get_authenticator
-from dbt.adapters.watsonx_spark.http_auth.wxd_authenticator import WatsonxData
 from dbt.adapters.watsonx_spark.http_auth.exceptions import (
     TokenRetrievalError,
     InvalidCredentialsError,
     CatalogDetailsError,
-    ConnectionError,
-    AuthenticationError
 )
 from dbt_common.utils.encoding import DECIMALS
 from dbt.adapters.watsonx_spark import __version__
-import requests
+
 try:
     from TCLIService.ttypes import TOperationState as ThriftState
     from thrift.transport import THttpClient
@@ -34,7 +31,7 @@ try:
     import pyodbc
 except ImportError:
     pyodbc = None
-from datetime import datetime, timedelta
+from datetime import datetime
 import sqlparams
 from dbt_common.dataclass_schema import StrEnum
 from dataclasses import dataclass, field
@@ -173,23 +170,20 @@ class SparkCredentials(Credentials):
         self.server_side_parameters = {
             str(key): str(value) for key, value in self.server_side_parameters.items()
         }
-        
-        if self.auth: 
-            self.auth = {
-                str(key): str(value) for key, value in self.auth.items()
-            }
+        if self.auth:
+            self.auth = {str(key): str(value) for key, value in self.auth.items()}
 
-        authenticator = get_authenticator(self.auth,self.host,self.uri)
+        authenticator = get_authenticator(self.auth, self.host, self.uri)
 
-        if self.token == None or self.token == "":
+        if not self.token:
             self.token = authenticator.get_token()
 
-        bucket, file_format = authenticator.get_catlog_details(self.catalog) 
-        if(file_format == "iceberg"): 
+        bucket, file_format = authenticator.get_catlog_details(self.catalog)
+        if file_format == "iceberg":
             self.schema = self.catalog + "." + self.schema
-        if(file_format == "delta" or file_format == "hudi"):
-            self.schema =  "spark_catalog." + self.schema
-        
+        if file_format == "delta" or file_format == "hudi":
+            self.schema = "spark_catalog." + self.schema
+
     @property
     def type(self) -> str:
         return "watsonx_spark"
