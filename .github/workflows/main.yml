@@ -82,7 +82,7 @@ jobs:
           pre-commit --version
           python -m pip install -r requirements.txt
           python -m pip install -r dev-requirements.txt
-          python -c "import dbt.adapters.spark"
+          python -c "import dbt.adapters.watsonx_spark"
 
       - name: Run pre-commit hooks
         run: pre-commit run --all-files --show-diff-on-failure
@@ -224,10 +224,10 @@ jobs:
           find ./dist/*.whl -maxdepth 1 -type f | xargs python -m pip install --force-reinstall --find-links=dist/
       - name: Check wheel distributions
         run: |
-          python -c "import dbt.adapters.spark"
+          python -c "import dbt.adapters.watsonx_spark"
       - name: Install source distributions
         run: |
           find ./dist/*.gz -maxdepth 1 -type f | xargs python -m pip install --force-reinstall --find-links=dist/
       - name: Check source distributions
         run: |
-          python -c "import dbt.adapters.spark"
+          python -c "import dbt.adapters.watsonx_spark"
