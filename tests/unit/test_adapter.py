@@ -1,3 +1,5 @@
+import sys
+import types
 import unittest
 from multiprocessing import get_context
 from unittest import mock
@@ -10,9 +12,31 @@ from dbt.adapters.watsonx_spark import SparkAdapter, SparkRelation
 from .utils import config_from_parts_or_dicts
 
 
+class _FakeAuthenticator:
+    def get_token(self):
+        return "dummy-token"
+
+    def get_catlog_details(self, catalog_name):
+        # Avoid mutating schema in tests; we only need a placeholder
+        return ("", "parquet")
+
+
 class TestSparkAdapter(unittest.TestCase):
     def setUp(self):
         flags.STRICT_MODE = False
+
+        self.auth_patcher = mock.patch(
+            "dbt.adapters.watsonx_spark.connections.get_authenticator",
+            return_value=_FakeAuthenticator(),
+        )
+        self.auth_patcher.start()
+        self.addCleanup(self.auth_patcher.stop)
+
+        # Provide a stub pyodbc module so ODBC credential validation doesn't fail in unit tests
+        self.pyodbc_stub = types.SimpleNamespace(connect=lambda *args, **kwargs: None)
+        sys.modules.setdefault("pyodbc", self.pyodbc_stub)
+        import dbt.adapters.watsonx_spark.connections as conn_mod
+        conn_mod.pyodbc = self.pyodbc_stub
 
         self.project_cfg = {
             "name": "X",
@@ -38,6 +62,7 @@ class TestSparkAdapter(unittest.TestCase):
                         "host": "myorg.sparkhost.com",
                         "port": 443,
                         "token": "abc123",
+                        "catalog": "spark_catalog",
                         "organization": "0123456789",
                         "cluster": "01234-23423-coffeetime",
                         "server_side_parameters": {"spark.driver.memory": "4g"},
@@ -58,7 +83,9 @@ class TestSparkAdapter(unittest.TestCase):
                         "schema": "analytics",
                         "host": "myorg.sparkhost.com",
                         "port": 10001,
+                        "catalog": "spark_catalog",
                         "user": "dbt",
+                        "token": "abc123",
                     }
                 },
                 "target": "test",
@@ -77,7 +104,8 @@ class TestSparkAdapter(unittest.TestCase):
                         "host": "myorg.sparkhost.com",
                         "port": 10001,
                         "user": "dbt",
-                        "auth": "KERBEROS",
+                        "catalog": "spark_catalog",
+                        "auth": {"type": "KERBEROS"},
                         "kerberos_service_name": "hive",
                     }
                 },
@@ -97,6 +125,7 @@ class TestSparkAdapter(unittest.TestCase):
                         "schema": "analytics",
                         "host": "myorg.sparkhost.com",
                         "port": 10001,
+                        "catalog": "spark_catalog",
                         "user": "dbt",
                     }
                 },
@@ -116,6 +145,7 @@ class TestSparkAdapter(unittest.TestCase):
                         "host": "myorg.sparkhost.com",
                         "port": 443,
                         "token": "abc123",
+                        "catalog": "spark_catalog",
                         "organization": "0123456789",
                         "cluster": "01234-23423-coffeetime",
                         "driver": "Simba",
@@ -137,6 +167,7 @@ class TestSparkAdapter(unittest.TestCase):
                         "host": "myorg.sparkhost.com",
                         "port": 443,
                         "token": "abc123",
+                        "catalog": "spark_catalog",
                         "endpoint": "012342342393920a",
                         "driver": "Simba",
                     }
@@ -149,7 +180,7 @@ class TestSparkAdapter(unittest.TestCase):
         config = self._get_target_http(self.project_cfg)
         adapter = SparkAdapter(config, get_context("spawn"))
 
-        def hive_http_connect(thrift_transport, configuration):
+        def hive_http_connect(thrift_transport, database=None, configuration=None):
             self.assertEqual(thrift_transport.scheme, "https")
             self.assertEqual(thrift_transport.port, 443)
             self.assertEqual(thrift_transport.host, "myorg.sparkhost.com")
@@ -224,7 +255,7 @@ class TestSparkAdapter(unittest.TestCase):
             self.assertEqual(host, "myorg.sparkhost.com")
             self.assertEqual(port, 10001)
             self.assertEqual(username, "dbt")
-            self.assertEqual(auth, "KERBEROS")
+            self.assertEqual(auth, {"type": "KERBEROS"})
             self.assertEqual(kerberos_service_name, "hive")
             self.assertIsNone(password)
             self.assertDictEqual(configuration, {})
@@ -510,6 +541,7 @@ class TestSparkAdapter(unittest.TestCase):
                     "port": 443,
                     "token": "abc123",
                     "organization": "0123456789",
+                    "catalog": "spark_catalog",
                     "cluster": "01234-23423-coffeetime",
                 }
             },
