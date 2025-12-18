@@ -46,10 +46,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Block pull_request workflows
+      - name: Block pull_request_target workflows
         run: |
-          if grep -R "pull_request:" -n .github/workflows; then
-            echo "pull_request is not allowed in this repository. Use pull_request instead to avoid exposing secrets to untrusted code." >&2
+          # Fail if any workflow uses pull_request_target, which runs with repo secrets
+          if git grep -n "pull_request_target[[:space:]]*:" -- .github/workflows; then
+            echo "pull_request_target is not allowed in this repository. Use pull_request instead to avoid exposing secrets to untrusted code." >&2
             exit 1
           fi
 
