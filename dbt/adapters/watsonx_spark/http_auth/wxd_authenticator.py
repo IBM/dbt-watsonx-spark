@@ -1,21 +1,20 @@
 import json
-import logging
-import platform
 import re
-from platform import python_version
-from typing import Any, Dict, Optional, Tuple
-
-import requests
-from thrift.transport import THttpClient
-
-from dbt.adapters.watsonx_spark import __version__
 from dbt.adapters.watsonx_spark.http_auth.authenticator import Authenticator
 from dbt.adapters.watsonx_spark.http_auth.exceptions import (
-    CatalogDetailsError,
-    InvalidCredentialsError,
     TokenRetrievalError,
+    InvalidCredentialsError,
+    CatalogDetailsError
 )
 from dbt.adapters.watsonx_spark.http_auth.status_codes import StatusCodeHandler
+from thrift.transport import THttpClient
+from venv import logger
+import requests
+from dbt.adapters.watsonx_spark import __version__
+from platform import python_version
+import platform
+import sys
+from typing import Optional, Dict, Any, Tuple
 
 
 CPD = "CPD"
@@ -27,29 +26,25 @@ SASS_AUTH_HEADER = "AuthInstanceId"
 DBT_WATSONX_SPARK_VERSION = __version__.version
 OS = platform.system()
 PYTHON_VERSION = python_version()
-USER_AGENT = (
-    f"dbt-watsonx-spark/{DBT_WATSONX_SPARK_VERSION} (IBM watsonx.data; Python {PYTHON_VERSION}; {OS})"
-)
-
-logger = logging.getLogger(__name__)
+USER_AGENT = f"dbt-watsonx-spark/{DBT_WATSONX_SPARK_VERSION} (IBM watsonx.data; Python {PYTHON_VERSION}; {OS})"
 
 
-class WatsonxDataEnv:
-    def __init__(self, envType: str, authEndpoint: str, authInstanceHeaderKey: str):
+class WatsonxDataEnv():
+    def __init__(self, envType, authEndpoint, authInstanceHeaderKey):
         self.envType = envType
         self.authEndpoint = authEndpoint
         self.authInstanceHeaderKey = authInstanceHeaderKey
 
 
 class Token:
-    def __init__(self, token: str):
+    def __init__(self, token):
         self.token = token
 
 
 class WatsonxData(Authenticator):
     VERSION_REGEX = re.compile(r"/api/(v[0-9]+(?:\.[0-9]+)*)\b(?:/|$)")
 
-    def __init__(self, profile: Dict[str, Any], host: str, uri: Optional[str]):
+    def __init__(self, profile, host, uri):
         self.profile = profile
         self.type = profile.get("type")
         self.instance = profile.get("instance")
@@ -76,17 +71,17 @@ class WatsonxData(Authenticator):
         m = self.VERSION_REGEX.search(uri)
         return m.group(1) if m else None
 
-    def _get_environment(self) -> WatsonxDataEnv:
+    def _get_environment(self):
         if "crn" in self.instance:
             return WatsonxDataEnv(SAAS, self.sass_auth_endpoint, SASS_AUTH_HEADER)
         else:
             return WatsonxDataEnv(CPD, CPD_AUTH_ENDPOINT, CPD_AUTH_HEADER)
 
-    def Authenticate(self, transport: THttpClient.THttpClient) -> THttpClient.THttpClient:
+    def Authenticate(self, transport: THttpClient.THttpClient):
         transport.setCustomHeaders(self._get_headers())
         return transport
 
-    def get_token(self) -> str:
+    def get_token(self):
         wxd_env = self._get_environment()
         token_obj = self._get_token(wxd_env)
         
@@ -97,7 +92,7 @@ class WatsonxData(Authenticator):
             
         return str(token_obj.token)
 
-    def _get_cpd_token(self, cpd_env: WatsonxDataEnv) -> Token:
+    def _get_cpd_token(self, cpd_env):
         cpd_url = f"{self.host}{cpd_env.authEndpoint}"
         response = self._post_request(
             cpd_url, data={"username": self.user, "api_key": self.apikey})
@@ -110,12 +105,12 @@ class WatsonxData(Authenticator):
         token = Token(response.get("token"))
         return token
 
-    def _get_sass_token(self, sass_env: WatsonxDataEnv) -> Token:
+    def _get_sass_token(self, sass_env):
         sass_url = f"{self.host}{sass_env.authEndpoint}"
         response = self._post_request(
             sass_url,
             data={
-                "username": "ibmlhapikey_" + self.user if self.user is not None else "ibmlhapikey",
+                "username": "ibmlhapikey_" + self.user if self.user != None else "ibmlhapikey",
                 "password": self.apikey,
                 "instance_name": "",
                 "instance_id": self.instance,
@@ -137,18 +132,20 @@ class WatsonxData(Authenticator):
         token = Token(token_match.group(1))
         return token
 
-    def _post_request(self, url: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _post_request(self, url: str, data: dict) -> Dict[str, Any]:
         try:
             header = {"User-Agent": USER_AGENT}
             response = requests.post(url, json=data, headers=header, verify=False)
             
             # Get the environment type for documentation links
-            env_type = self._get_environment().envType if hasattr(self, "_get_environment") else None
+            env_type = self._get_environment().envType if hasattr(self, '_get_environment') else None
             
             # Handle 401 errors specifically with environment-specific documentation links
             if response.status_code == 401:
                 success, error = StatusCodeHandler.handle_401_error(
-                    response, context="Token retrieval", env_type=env_type
+                    response,
+                    context="Token retrieval",
+                    env_type=env_type
                 )
                 raise error
             
@@ -157,16 +154,10 @@ class WatsonxData(Authenticator):
                 response,
                 context="Token retrieval",
                 error_handlers={
-                    **{
-                        code: lambda r, msg: (
-                            False,
-                            TokenRetrievalError(status_code=r.status_code, message=msg),
-                        )
-                        for code in range(400, 600)
-                        if code != 401
-                    }
+                    **{code: lambda r, msg: (False, TokenRetrievalError(status_code=r.status_code, message=msg))
+                       for code in range(400, 600) if code != 401}
                 },
-                log_errors=True,
+                log_errors=True
             )
             
             if not success:
@@ -187,7 +178,7 @@ class WatsonxData(Authenticator):
             logger.error(error_msg)
             raise TokenRetrievalError(message=str(err))
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self):
         wxd_env = self._get_environment()
         token_obj = self._get_token(wxd_env)
         
@@ -203,7 +194,7 @@ class WatsonxData(Authenticator):
         headers = {**auth_header, **instance_header, **user_agent}
         return headers
 
-    def _get_token(self, wxd_env: WatsonxDataEnv) -> Token:
+    def _get_token(self, wxd_env):
         try:
             if wxd_env.envType == CPD:
                 return self._get_cpd_token(wxd_env)
@@ -222,7 +213,7 @@ class WatsonxData(Authenticator):
             logger.error(error_msg)
             raise TokenRetrievalError(message=error_msg) from e
 
-    def get_catlog_details(self, catalog_name: str) -> Tuple[str, str]:
+    def get_catlog_details(self, catalog_name) -> Tuple[str, str]:
         wxd_env = self._get_environment()
         url = f"{self.host}/lakehouse/api/{self.lakehouse_version}/catalogs/{catalog_name}"
         

@@ -7,7 +7,7 @@ from jinja2 import Environment, FileSystemLoader
 class TestSparkMacros(unittest.TestCase):
     def setUp(self):
         self.jinja_env = Environment(
-            loader=FileSystemLoader("dbt/include/watsonx_spark/macros"),
+            loader=FileSystemLoader("dbt/include/spark/macros"),
             extensions=[
                 "jinja2.ext.do",
             ],
@@ -37,9 +37,7 @@ class TestSparkMacros(unittest.TestCase):
 
         self.default_context["adapter"].dispatch = dispatch
 
-        value = getattr(template.module, name)(
-            temporary, relation, sql, self.default_context["config"]
-        )
+        value = getattr(template.module, name)(temporary, relation, sql)
         return re.sub(r"\s\s+", " ", value)
 
     def test_macros_load(self):
