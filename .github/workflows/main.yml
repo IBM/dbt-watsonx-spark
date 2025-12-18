@@ -34,10 +34,30 @@ defaults:
     shell: bash
 
 jobs:
+  workflow-safety:
+    name: workflow-safety
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Block pull_request_target workflows
+        run: |
+          if grep -R "pull_request_target:" -n .github/workflows; then
+            echo "pull_request_target is not allowed in this repository. Use pull_request instead to avoid exposing secrets to untrusted code." >&2
+            exit 1
+          fi
+
   code-quality:
     name: code-quality
 
     runs-on: ubuntu-latest
+    needs: workflow-safety
     timeout-minutes: 10
 
     steps:
@@ -70,6 +90,7 @@ jobs:
     name: unit test / python ${{ matrix.python-version }}
 
     runs-on: ubuntu-latest
+    needs: workflow-safety
     timeout-minutes: 10
 
     strategy:
@@ -80,6 +101,8 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -114,6 +137,7 @@ jobs:
     name: build packages
 
     runs-on: ubuntu-latest
+    needs: workflow-safety
 
     outputs:
       is_alpha: ${{ steps.check-is-alpha.outputs.is_alpha }}
@@ -121,6 +145,8 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -163,7 +189,7 @@ jobs:
 
     if: needs.build.outputs.is_alpha == 0
 
-    needs: build
+    needs: [workflow-safety, build]
 
     runs-on: ${{ matrix.os }}
 
