@@ -5,8 +5,9 @@ fixed:
     instance: "<watsonx.data-instance>"
     user: "<watsonx.data-username>"
     apikey: "<watsonx.data-apikey>"
-  # create_schemas: true  # Optional: Set to false to disable automatic schema creation (default: true)
-  # auto_location: true   # Optional: Set to false to disable automatic LOCATION clause in CREATE TABLE (default: true)
+  # create_schemas: true         # Optional: Set to false to disable automatic schema creation (default: true)
+  # auto_location: true          # Optional: Set to false to disable automatic LOCATION clause in CREATE TABLE (default: true)
+  # suppress_ssl_warnings: true  # Optional: Set to false to show SSL warnings when verify=False (default: true)
 prompts:
   host:
     hint: us-south.lakehouse.cloud.ibm.com

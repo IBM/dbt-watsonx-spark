@@ -93,12 +93,18 @@ class SparkCredentials(Credentials):
     catalog: Optional[str] = None
     create_schemas: bool = True
     auto_location: bool = True
+    suppress_ssl_warnings: bool = True
 
     @classmethod
     def __pre_deserialize__(cls, data: Any) -> Any:
         data = super().__pre_deserialize__(data)
         if "database" not in data:
             data["database"] = None
+        
+        # Convert auth dict values to strings to handle integer instance IDs
+        if "auth" in data and isinstance(data["auth"], dict):
+            data["auth"] = {str(key): str(value) for key, value in data["auth"].items()}
+        
         return data
 
     @property
@@ -518,7 +524,12 @@ class SparkConnectionManager(SQLConnectionManager):
                     transport.setCustomHeaders({"Authorization": "Basic {}".format(token)})
 
                     if creds.auth:
-                        authenticator = get_authenticator(creds.auth, host, creds.uri)
+                        authenticator = get_authenticator(
+                            creds.auth,
+                            host,
+                            creds.uri,
+                            creds.suppress_ssl_warnings
+                        )
                         transport = authenticator.Authenticate(transport)
 
                     conn = hive.connect(
