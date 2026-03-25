@@ -91,6 +91,8 @@ class SparkCredentials(Credentials):
     retry_all: bool = False
     location_root: Optional[str] = None
     catalog: Optional[str] = None
+    create_schemas: bool = True
+    auto_location: bool = True
 
     @classmethod
     def __pre_deserialize__(cls, data: Any) -> Any:

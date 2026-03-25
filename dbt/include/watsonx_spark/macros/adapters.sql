@@ -30,11 +30,17 @@
 {%- endmacro -%}
 
 {% macro watsonx_spark__location_clause() %}
-  {%- set location_root = config.get('location_root', validator=validation.any[basestring]) -%}
-  {%- set identifier = model['alias'] -%}
-  {%- if location_root is not none %}
-    location '{{ location_root }}/{{ identifier }}'
-  {%- endif %}
+  {%- set auto_location = config.get('auto_location', True) -%}
+  {%- set profile_auto_location = target.get('auto_location', True) if target is defined else True -%}
+  {%- set should_set_location = auto_location and profile_auto_location -%}
+  
+  {%- if should_set_location -%}
+    {%- set location_root = config.get('location_root', validator=validation.any[basestring]) -%}
+    {%- set identifier = model['alias'] -%}
+    {%- if location_root is not none %}
+      location '{{ location_root }}/{{ identifier }}'
+    {%- endif %}
+  {%- endif -%}
 {%- endmacro -%}
 
 
@@ -276,14 +282,24 @@
 {% endmacro %}
 
 {% macro watsonx_spark__create_schema(relation) -%}
-  {%- call statement('create_schema') -%}
-    {%- set locationPath = adapter.set_location_root(relation , config) -%}
-    {%- if locationPath is not none %}
-        create schema if not exists {{relation}} location {{locationPath}}
-    {% else %}
-      create schema if not exists {{relation}}
-    {% endif %}
-  {% endcall %}
+  {%- set create_schemas = config.get('create_schemas', True) -%}
+  {%- set profile_create_schemas = target.get('create_schemas', True) -%}
+  {%- set should_create = create_schemas and profile_create_schemas -%}
+  
+  {%- if should_create -%}
+    {%- call statement('create_schema') -%}
+      {%- set locationPath = adapter.set_location_root(relation , config) -%}
+      {%- if locationPath is not none %}
+          create schema if not exists {{relation}} location {{locationPath}}
+      {% else %}
+        create schema if not exists {{relation}}
+      {% endif %}
+    {% endcall %}
+  {%- else -%}
+    {%- call statement('create_schema') -%}
+      select 1 as noop
+    {% endcall %}
+  {%- endif -%}
 {% endmacro %}
 
 {% macro watsonx_spark__drop_schema(relation) -%}

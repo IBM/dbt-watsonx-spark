@@ -54,6 +54,14 @@ dbt_wxd:
       # Optional: Disable SSL verification
       use_ssl: false
 
+      # Optional: Control automatic schema creation (default: true)
+      # Set to false if schemas are managed externally (e.g., by Ops team)
+      create_schemas: true
+
+      # Optional: Control automatic LOCATION clause in CREATE TABLE (default: true)
+      # Set to false if table locations are managed externally or to avoid permission issues
+      auto_location: false
+
       auth:
         # In case of SaaS, set it as CRN of watsonx.data service
         # In case of Software, set it as instance id of watsonx.data
@@ -67,3 +75,87 @@ dbt_wxd:
         apikey: "<apikey>"
         
 ```
+
+#### Schema Creation Control
+
+By default, dbt-watsonx-spark automatically creates schemas if they don't exist. However, in some environments where schema creation is managed by an operations team or through automation, you may want to disable this behavior.
+
+You can control schema creation at three levels:
+
+1. **Profile level** (applies to all models in the profile):
+```yaml
+dbt_wxd:
+  target: dev
+  outputs:
+    dev:
+      type: watsonx_spark
+      # ... other settings ...
+      create_schemas: false  # Disable automatic schema creation
+```
+
+2. **Project level** (in `dbt_project.yml`):
+```yaml
+models:
+  my_project:
+    +create_schemas: false  # Disable for all models in project
+```
+
+3. **Model level** (in model config or `dbt_project.yml`):
+```yaml
+# In model file
+{{ config(create_schemas=false) }}
+
+# Or in dbt_project.yml
+models:
+  my_project:
+    my_folder:
+      +create_schemas: false  # Disable for specific folder
+```
+
+When `create_schemas` is set to `false`, dbt will skip schema creation and assume the schema already exists. This is useful when:
+- Schemas are created by an external automation or Ops team
+- You want to enforce strict schema management policies
+- You need to prevent accidental schema creation in production environments
+#### Table Location Control
+
+By default, dbt-watsonx-spark automatically adds a LOCATION clause when creating tables based on the `location_root` configuration. However, in some environments where table locations are managed externally or to avoid S3 permission issues, you may want to disable this behavior.
+
+You can control automatic location setting at three levels:
+
+1. **Profile level** (applies to all models in the profile):
+```yaml
+dbt_wxd:
+  target: dev
+  outputs:
+    dev:
+      type: watsonx_spark
+      # ... other settings ...
+      auto_location: false  # Disable automatic LOCATION clause
+```
+
+2. **Project level** (in `dbt_project.yml`):
+```yaml
+models:
+  my_project:
+    +auto_location: false  # Disable for all models in project
+```
+
+3. **Model level** (in model config or `dbt_project.yml`):
+```yaml
+# In model file
+{{ config(auto_location=false) }}
+
+# Or in dbt_project.yml
+models:
+  my_project:
+    my_folder:
+      +auto_location: false  # Disable for specific folder
+```
+
+When `auto_location` is set to `false`, dbt will not add a LOCATION clause to CREATE TABLE statements, allowing the database to use its default location or a location specified by external schema management. This is useful when:
+- Table locations are managed by an external automation or Ops team
+- You want to avoid S3 permission issues related to specific paths
+- The schema already has a default location configured
+- You need to comply with strict data governance policies
+
+
