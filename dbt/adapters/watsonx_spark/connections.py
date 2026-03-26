@@ -92,7 +92,7 @@ class SparkCredentials(Credentials):
     location_root: Optional[str] = None
     catalog: Optional[str] = None
     create_schemas: bool = True
-    auto_location: bool = True
+    auto_location: bool = False
     suppress_ssl_warnings: bool = True
 
     @classmethod
