@@ -346,7 +346,30 @@ class SparkAdapter(SQLAdapter):
         columns = [x for x in columns if x.name not in self.HUDI_METADATA_COLUMNS]
         return columns
 
+    def _get_active_credentials(self) -> SparkCredentials:
+        try:
+            return self.connections.get_thread_connection().credentials
+        except Exception:
+            return self.config.credentials
+
+    @available
+    def should_create_schema(self, config: Optional[Any] = None) -> bool:
+        creds = self._get_active_credentials()
+        profile_value = bool(getattr(creds, "create_schemas", True))
+        config_value = True if config is None else config.get("create_schemas", True)
+        return profile_value and bool(config_value)
+
+    @available
+    def should_set_location(self, config: Optional[Any] = None) -> bool:
+        creds = self._get_active_credentials()
+        profile_value = bool(getattr(creds, "auto_location", False))
+        config_value = True if config is None else config.get("auto_location", True)
+        return profile_value and bool(config_value)
+
+
     def create_schema(self, relation: SparkRelation) -> None:
+        if not self.should_create_schema():
+            return
         relation = relation.without_identifier()
         kwargs = {
             "relation": relation
@@ -356,6 +379,9 @@ class SparkAdapter(SQLAdapter):
 
     @available.parse_none
     def set_location_root(self, relation: SparkRelation, config: SparkConfig) -> Optional[str]:
+        if not self.should_set_location(config):
+            return None
+
         profile_cred: SparkCredentials = self.connections.get_thread_connection().credentials
         profile_location_root = self.validate_location(profile_cred.location_root)
         model_location_root = self.validate_location(config.get("location_root"))
