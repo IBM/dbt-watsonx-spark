@@ -354,22 +354,59 @@ class SparkAdapter(SQLAdapter):
 
     @available
     def should_create_schema(self, config: Optional[Any] = None) -> bool:
+        """Check if schemas should be created automatically.
+        
+        Configuration hierarchy: model config → profile config → adapter default (True)
+        """
+        # Check model-level config first
+        if config is not None and "create_schemas" in config:
+            return bool(config.get("create_schemas"))
+        
+        # Fall back to profile-level config
         creds = self._get_active_credentials()
-        profile_value = bool(getattr(creds, "create_schemas", True))
-        config_value = True if config is None else config.get("create_schemas", True)
-        return profile_value and bool(config_value)
+        profile_value = getattr(creds, "create_schemas", None)
+        if profile_value is not None:
+            return bool(profile_value)
+        
+        # Default to True (create schemas)
+        return True
 
     @available
     def should_set_location(self, config: Optional[Any] = None) -> bool:
+        """Check if LOCATION clause should be added to CREATE statements.
+        
+        Configuration hierarchy: model config → profile config → adapter default (False)
+        """
+        # Check model-level config first
+        if config is not None:
+            try:
+                # Try to get auto_location from config (handles both dict and RuntimeConfigObject)
+                auto_location_value = config.get("auto_location") if hasattr(config, "get") else getattr(config, "auto_location", None)
+                if auto_location_value is not None:
+                    result = bool(auto_location_value)
+                    logger.info(f"LOCATION clause {'enabled' if result else 'disabled'} (auto_location from model config)")
+                    return result
+            except (AttributeError, TypeError):
+                pass
+        
+        # Fall back to profile-level config
         creds = self._get_active_credentials()
-        profile_value = bool(getattr(creds, "auto_location", False))
-        config_value = True if config is None else config.get("auto_location", True)
-        return profile_value and bool(config_value)
+        profile_value = getattr(creds, "auto_location", None)
+        if profile_value is not None:
+            result = bool(profile_value)
+            logger.info(f"LOCATION clause {'enabled' if result else 'disabled'} (auto_location from profile config)")
+            return result
+        
+        # Default to False (no LOCATION clause)
+        logger.info("LOCATION clause disabled (auto_location default)")
+        return False
 
 
     def create_schema(self, relation: SparkRelation) -> None:
         if not self.should_create_schema():
+            logger.info(f"Skipping schema creation for {relation} (create_schemas is disabled)")
             return
+        
         relation = relation.without_identifier()
         kwargs = {
             "relation": relation

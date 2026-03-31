@@ -278,11 +278,12 @@
 {% endmacro %}
 
 {% macro watsonx_spark__create_schema(relation) -%}
-  {%- if adapter.should_create_schema(config) -%}
+  {%- if adapter.should_create_schema() -%}
     {%- set locationPath = none -%}
-    {%- if adapter.should_set_location(config) -%}
+    {%- if adapter.should_set_location() -%}
       {%- set locationPath = adapter.set_location_root(relation , config) -%}
     {%- endif -%}
+    
     {%- call statement('create_schema') -%}
       {%- if locationPath is not none %}
         
@@ -294,8 +295,6 @@
         
       {%- endif -%}
     {% endcall %}
-  {%- else -%}
-    {{ log("Skipping schema creation for " ~ relation ~ " (create_schemas is disabled)", info=True) }}
   {%- endif -%}
 {% endmacro %}
 
