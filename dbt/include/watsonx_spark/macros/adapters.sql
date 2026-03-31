@@ -30,11 +30,7 @@
 {%- endmacro -%}
 
 {% macro watsonx_spark__location_clause() %}
-  {%- set auto_location = config.get('auto_location', True) -%}
-  {%- set profile_auto_location = target.get('auto_location', True) if target is defined else True -%}
-  {%- set should_set_location = auto_location and profile_auto_location -%}
-  
-  {%- if should_set_location -%}
+  {%- if adapter.should_set_location(config) -%}
     {%- set location_root = config.get('location_root', validator=validation.any[basestring]) -%}
     {%- set identifier = model['alias'] -%}
     {%- if location_root is not none %}
@@ -282,23 +278,24 @@
 {% endmacro %}
 
 {% macro watsonx_spark__create_schema(relation) -%}
-  {%- set create_schemas = config.get('create_schemas', True) -%}
-  {%- set profile_create_schemas = target.get('create_schemas', True) -%}
-  {%- set should_create = create_schemas and profile_create_schemas -%}
-  
-  {%- if should_create -%}
-    {%- call statement('create_schema') -%}
+  {%- if adapter.should_create_schema(config) -%}
+    {%- set locationPath = none -%}
+    {%- if adapter.should_set_location(config) -%}
       {%- set locationPath = adapter.set_location_root(relation , config) -%}
+    {%- endif -%}
+    {%- call statement('create_schema') -%}
       {%- if locationPath is not none %}
-          create schema if not exists {{relation}} location {{locationPath}}
-      {% else %}
+        
+        create schema if not exists {{relation}} location {{locationPath}}
+        
+      {%- else %}
+        
         create schema if not exists {{relation}}
-      {% endif %}
+        
+      {%- endif -%}
     {% endcall %}
   {%- else -%}
-    {%- call statement('create_schema') -%}
-      select 1 as noop
-    {% endcall %}
+    {{ log("Skipping schema creation for " ~ relation ~ " (create_schemas is disabled)", info=True) }}
   {%- endif -%}
 {% endmacro %}
 
