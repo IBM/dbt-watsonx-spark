@@ -30,11 +30,13 @@
 {%- endmacro -%}
 
 {% macro watsonx_spark__location_clause() %}
-  {%- set location_root = config.get('location_root', validator=validation.any[basestring]) -%}
-  {%- set identifier = model['alias'] -%}
-  {%- if location_root is not none %}
-    location '{{ location_root }}/{{ identifier }}'
-  {%- endif %}
+  {%- if adapter.should_set_location(config) -%}
+    {%- set location_root = config.get('location_root', validator=validation.any[basestring]) -%}
+    {%- set identifier = model['alias'] -%}
+    {%- if location_root is not none %}
+      location '{{ location_root }}/{{ identifier }}'
+    {%- endif %}
+  {%- endif -%}
 {%- endmacro -%}
 
 
@@ -276,14 +278,24 @@
 {% endmacro %}
 
 {% macro watsonx_spark__create_schema(relation) -%}
-  {%- call statement('create_schema') -%}
-    {%- set locationPath = adapter.set_location_root(relation , config) -%}
-    {%- if locationPath is not none %}
+  {%- if adapter.should_create_schema() -%}
+    {%- set locationPath = none -%}
+    {%- if adapter.should_set_location() -%}
+      {%- set locationPath = adapter.set_location_root(relation , config) -%}
+    {%- endif -%}
+    
+    {%- call statement('create_schema') -%}
+      {%- if locationPath is not none %}
+        
         create schema if not exists {{relation}} location {{locationPath}}
-    {% else %}
-      create schema if not exists {{relation}}
-    {% endif %}
-  {% endcall %}
+        
+      {%- else %}
+        
+        create schema if not exists {{relation}}
+        
+      {%- endif -%}
+    {% endcall %}
+  {%- endif -%}
 {% endmacro %}
 
 {% macro watsonx_spark__drop_schema(relation) -%}

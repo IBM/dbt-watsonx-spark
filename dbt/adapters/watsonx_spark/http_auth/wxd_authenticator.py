@@ -2,11 +2,13 @@ import json
 import logging
 import platform
 import re
+import warnings
 from platform import python_version
 from typing import Any, Dict, Optional, Tuple
 
 import requests
 from thrift.transport import THttpClient
+from urllib3.exceptions import InsecureRequestWarning
 
 from dbt.adapters.watsonx_spark import __version__
 from dbt.adapters.watsonx_spark.http_auth.authenticator import Authenticator
@@ -57,6 +59,15 @@ class WatsonxData(Authenticator):
         self.apikey = profile.get("apikey")
         self.host = host
         self.uri = uri
+        
+        # Conditionally suppress SSL warnings based on profile setting
+        suppress_ssl_warnings = profile.get("suppress_ssl_warnings", True)
+        if suppress_ssl_warnings:
+            warnings.filterwarnings('ignore', category=InsecureRequestWarning)
+        else:
+            # Reset the filter to show warnings
+            warnings.filterwarnings('default', category=InsecureRequestWarning)
+        
         if self.uri:
             version_from_uri = self._extract_version_from_uri(self.uri)
         else:

@@ -16,15 +16,22 @@ class Authenticator(ABC):
 
 
 def get_authenticator(
-    authProfile: Optional[Union[Dict[str, Any], str]], host: Optional[str], uri: Optional[str]
+    authProfile: Optional[Union[Dict[str, Any], str]],
+    host: Optional[str],
+    uri: Optional[str],
+    suppress_ssl_warnings: bool = True
 ) -> Authenticator:
     # Import lazily to avoid circular import during module initialization
     from dbt.adapters.watsonx_spark.http_auth.wxd_authenticator import WatsonxData
     profile_dict: Dict[str, Any]
     if isinstance(authProfile, dict):
-        profile_dict = authProfile
+        profile_dict = authProfile.copy()  # Make a copy to avoid modifying the original
     elif authProfile is None:
         profile_dict = {}
     else:
         profile_dict = {"type": str(authProfile)}
+    
+    # Add suppress_ssl_warnings as a separate key (not inside auth dict)
+    profile_dict["suppress_ssl_warnings"] = suppress_ssl_warnings
+    
     return WatsonxData(profile_dict, host or "", uri)
