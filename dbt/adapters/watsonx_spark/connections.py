@@ -95,6 +95,7 @@ class SparkCredentials(Credentials):
     auto_location: bool = False
     suppress_ssl_warnings: bool = True
     connection_catalog: Optional[str] = "default"
+    quote_identifiers: bool = True  # Quote table/schema names to handle special characters
 
     @classmethod
     def __pre_deserialize__(cls, data: Any) -> Any:

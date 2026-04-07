@@ -164,9 +164,9 @@
         {{ create_temporary_view(relation, compiled_code) }}
       {%- else -%}
         {% if config.get('file_format', validator=validation.any[basestring]) in ['delta', 'iceberg'] %}
-          create or replace table {{ relation }}
+          create or replace table {{ relation.render() }}
         {% else %}
-          create table {{ relation }}
+          create table {{ relation.render() }}
         {% endif %}
         {%- set contract_config = config.get('contract') -%}
         {%- if contract_config.enforced -%}
@@ -345,6 +345,7 @@
   {#-- Spark with iceberg tables don't work with show table extended for #}
   {#-- V2 iceberg tables #}
   {#-- https://issues.apache.org/jira/browse/SPARK-33393 #}
+  {#-- Table name is already quoted in Python (impl.py) to handle special characters #}
   {% call statement('describe_table_extended_without_caching', fetch_result=True) -%}
     describe extended {{ table_name }}
   {% endcall %}

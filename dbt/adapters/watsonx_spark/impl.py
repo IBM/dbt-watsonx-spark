@@ -199,7 +199,18 @@ class WatsonxSparkAdapter(SQLAdapter):
                 f'Invalid value from "show tables ...", got {len(row)} values, expected 3'
             )
 
-        table_name = f"{_schema}.{name}"
+        # Check if identifier quoting is enabled (default: True)
+        creds = self.connections.get_thread_connection().credentials
+        quote_identifiers = getattr(creds, 'quote_identifiers', True)
+        
+        # Quote schema and table name separately to handle special characters
+        if quote_identifiers:
+            quoted_schema = f"`{_schema}`"
+            quoted_name = f"`{name}`"
+            table_name = f"{quoted_schema}.{quoted_name}"
+        else:
+            table_name = f"{_schema}.{name}"
+        
         try:
             table_results = self.execute_macro(
                 DESCRIBE_TABLE_EXTENDED_MACRO_NAME, kwargs={"table_name": table_name}
@@ -251,47 +262,96 @@ class WatsonxSparkAdapter(SQLAdapter):
         try different methods to fetch relation information."""
 
         kwargs = {"schema_relation": schema_relation}
+        
+        # DEBUG: Log the schema being queried
+        logger.info(f"[V2_DEBUG] Attempting to list relations in schema: {schema_relation}")
+        
         try:
             show_table_extended_rows = self.execute_macro(
                 LIST_RELATIONS_MACRO_NAME, kwargs=kwargs
             )
+            logger.info(f"[V2_DEBUG] SHOW TABLE EXTENDED succeeded for {schema_relation}")
             rels = self._build_spark_relation_list(
                 row_list=show_table_extended_rows,
                 relation_info_func=self._get_relation_information,
             )
             if "." in schema_relation.schema:
                 rels = [r.incorporate(path={"schema": schema_relation.schema}) for r in rels]
+            logger.info(f"[V2_DEBUG] Successfully listed {len(rels)} relations using SHOW TABLE EXTENDED")
             return rels
         except DbtRuntimeError as e:
             errmsg = getattr(e, "msg", "").lower()
+            
+            # DEBUG: Log the full error message for analysis
+            logger.info(f"[V2_DEBUG] Caught DbtRuntimeError for {schema_relation}")
+            logger.info(f"[V2_DEBUG] Error message (first 500 chars): {errmsg[:500]}")
+            logger.debug(f"[V2_DEBUG] Full error message: {errmsg}")
+            
             if f"database '{schema_relation}' not found" in errmsg:
+                logger.info(f"[V2_DEBUG] Database not found, returning empty list")
                 return []
-            # Iceberg compute engine behavior: show table
-            if (
-                "show table extended is not supported for v2 tables" in errmsg
-                or 'invalid value from "show tables extended' in errmsg
-                or "failed to list all tables under namespace" in errmsg
-                or ("show table extended" in errmsg and "not supported" in errmsg)
-                ):
+            
+            # Iceberg v2 table incompatibility detection
+            # Check for standardized Spark error patterns (error message is already lowercase)
+            v2_table_error_patterns = [
+                # Spark error codes
+                "_legacy_error_temp_1200",  # Spark 3.x error code for v2 table issues
+                
+                # Direct error messages
+                "show table extended is not supported for v2 tables",
+                "show table extended is not supported",
+                "showtableextended",  # Operation name in stack trace
+                
+                # Iceberg-specific patterns
+                "org.apache.iceberg.spark.sparkcatalog",
+                "resolvednamespace org.apache.iceberg",
+                
+                # Generic patterns
+                'invalid value from "show tables extended',
+                "failed to list all tables under namespace",
+            ]
+            
+            # DEBUG: Check each pattern individually
+            matched_patterns = []
+            for pattern in v2_table_error_patterns:
+                if pattern in errmsg:
+                    matched_patterns.append(pattern)
+                    logger.info(f"[V2_DEBUG] ✓ Pattern matched: '{pattern}'")
+            
+            if not matched_patterns:
+                logger.info(f"[V2_DEBUG] ✗ No v2 table patterns matched")
+                logger.info(f"[V2_DEBUG] Checked patterns: {v2_table_error_patterns}")
+            
+            # Check if any v2 table error pattern matches
+            if any(pattern in errmsg for pattern in v2_table_error_patterns):
                 # this happens with spark-iceberg with v2 iceberg tables
                 # https://issues.apache.org/jira/browse/SPARK-33393
+                logger.info(f"[V2_DEBUG] ✓✓✓ Iceberg v2 table detected! Matched patterns: {matched_patterns}")
+                logger.info(f"[V2_DEBUG] Falling back to SHOW TABLES + DESCRIBE EXTENDED approach")
+                
                 try:
                     # Iceberg behavior: 3-row result of relations obtained
                     show_table_rows = self.execute_macro(
                         LIST_RELATIONS_SHOW_TABLES_MACRO_NAME, kwargs=kwargs
                     )
+                    logger.info(f"[V2_DEBUG] SHOW TABLES succeeded, got {len(show_table_rows) if show_table_rows else 0} rows")
+                    
                     rels = self._build_spark_relation_list(
                         row_list=show_table_rows,
                         relation_info_func=self._get_relation_information_using_describe,
                     )
                     if "." in schema_relation.schema:
                         rels = [r.incorporate(path={"schema": schema_relation.schema}) for r in rels]
+                    
+                    logger.info(f"[V2_DEBUG] ✓✓✓ Fallback successful! Listed {len(rels)} relations using SHOW TABLES")
                     return rels
                 except DbtRuntimeError as e:
                     description = "Error while retrieving information about"
+                    logger.info(f"[V2_DEBUG] ✗ Fallback failed: {e.msg[:200]}")
                     logger.debug(f"{description} {schema_relation}: {e.msg}")
                     return []
             else:
+                logger.info(f"[V2_DEBUG] Not a v2 table error, re-raising exception")
                 logger.debug(
                     f"Error while retrieving information about {schema_relation}: {errmsg}"
                 )
