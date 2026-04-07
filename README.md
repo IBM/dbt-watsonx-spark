@@ -58,8 +58,8 @@ dbt_wxd:
       # Set to false if schemas are managed externally (e.g., by Ops team)
       create_schemas: true
 
-      # Optional: Control automatic LOCATION clause in CREATE TABLE (default: true)
-      # Set to false if table locations are managed externally or to avoid permission issues
+      # Optional: Control automatic LOCATION clause in CREATE TABLE (default: false)
+      # Set to true if you want dbt to automatically add LOCATION clauses
       auto_location: false
 
       auth:
