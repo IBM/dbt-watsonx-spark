@@ -15,12 +15,7 @@
 {% macro watsonx_spark__snapshot_merge_sql(target, source, insert_cols) -%}
 
     merge into {{ target }} as DBT_INTERNAL_DEST
-    {% if target.is_iceberg %}
-      {# create view only supports a name (no catalog, or schema) #}
-      using {{ source.identifier }} as DBT_INTERNAL_SOURCE
-    {% else %}
       using {{ source }} as DBT_INTERNAL_SOURCE
-    {% endif %}
     on DBT_INTERNAL_SOURCE.dbt_scd_id = DBT_INTERNAL_DEST.dbt_scd_id
     when matched
      and DBT_INTERNAL_DEST.dbt_valid_to is null
@@ -37,19 +32,10 @@
 
 {% macro spark_build_snapshot_staging_table(strategy, sql, target_relation) %}
     {% set tmp_identifier = target_relation.identifier ~ '__dbt_tmp' %}
-
-    {% if target_relation.is_iceberg %}
-      {# iceberg catalog does not support create view, but regular spark does. We removed the catalog and schema #}
-      {%- set tmp_relation = api.Relation.create(identifier=tmp_identifier,
-                                                    schema=none,
-                                                    database=none,
-                                                    type='view') -%}
-    {% else %}
-      {%- set tmp_relation = api.Relation.create(identifier=tmp_identifier,
-                                                    schema=target_relation.schema,
-                                                    database=none,
-                                                    type='view') -%}
-    {% endif %}
+    {%- set tmp_relation = api.Relation.create(identifier=tmp_identifier,
+                                                  schema=target_relation.schema,
+                                                  database=none,
+                                                  type='view') -%}
 
     {% set select = snapshot_staging_table(strategy, sql, target_relation) %}
 

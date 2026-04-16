@@ -1,7 +1,28 @@
 import unittest
 from unittest import mock
 import re
+from pathlib import Path
+from types import SimpleNamespace
 from jinja2 import Environment, FileSystemLoader
+
+
+class RenderableRelation:
+    def __init__(
+        self, qualified_name, identifier, schema=None, is_iceberg=False, include_schema=True
+    ):
+        self.qualified_name = qualified_name
+        self.identifier = identifier
+        self.schema = schema
+        self.is_iceberg = is_iceberg
+        self.include_policy = SimpleNamespace(schema=include_schema)
+
+    def include(self, database=False, schema=False):
+        if schema and self.schema is not None:
+            return self.qualified_name
+        return self.identifier
+
+    def __str__(self):
+        return self.qualified_name
 
 
 class TestSparkMacros(unittest.TestCase):
@@ -41,6 +62,9 @@ class TestSparkMacros(unittest.TestCase):
             temporary, relation, sql, self.default_context["config"]
         )
         return re.sub(r"\s\s+", " ", value)
+
+    def __normalize_sql(self, sql):
+        return re.sub(r"\s\s+", " ", sql).strip()
 
     def test_macros_load(self):
         self.jinja_env.get_template("adapters.sql")
@@ -210,3 +234,56 @@ class TestSparkMacros(unittest.TestCase):
             sql,
             "create table my_table using hudi partitioned by (partition_1,partition_2) clustered by (cluster_1,cluster_2) into 1 buckets location '/mnt/root/my_table' comment 'Description Test' as select 1",
         )
+
+    def test_macros_create_temporary_view_uses_identifier_even_when_schema_exists(self):
+        template = self.__get_template("adapters.sql")
+        relation = RenderableRelation(
+            qualified_name="reporting_catalog.analytics_schema.orders_snapshot__dbt_tmp",
+            identifier="orders_snapshot__dbt_tmp",
+            schema="reporting_catalog.analytics_schema",
+        )
+
+        sql = self.__normalize_sql(
+            template.module.watsonx_spark__create_temporary_view(relation, "select 1")
+        )
+
+        self.assertEqual(
+            sql,
+            "create or replace temporary view orders_snapshot__dbt_tmp as select 1",
+        )
+
+    def test_macros_create_temporary_view_uses_identifier_when_schema_missing(self):
+        template = self.__get_template("adapters.sql")
+        relation = RenderableRelation(
+            qualified_name="orders_snapshot__dbt_tmp",
+            identifier="orders_snapshot__dbt_tmp",
+            schema=None,
+        )
+
+        sql = self.__normalize_sql(
+            template.module.watsonx_spark__create_temporary_view(relation, "select 1")
+        )
+
+        self.assertEqual(sql, "create or replace temporary view orders_snapshot__dbt_tmp as select 1")
+
+    def test_render_relation_name_respects_existing_include_policy(self):
+        template = self.__get_template("adapters.sql")
+        relation = RenderableRelation(
+            qualified_name="reporting_catalog.analytics_schema.orders_incremental__dbt_tmp",
+            identifier="orders_incremental__dbt_tmp",
+            schema="reporting_catalog.analytics_schema",
+            include_schema=False,
+        )
+
+        sql = self.__normalize_sql(template.module.watsonx_spark__render_relation_name(relation))
+
+        self.assertEqual(sql, "orders_incremental__dbt_tmp")
+
+    def test_snapshot_macros_keep_qualified_staging_view_names(self):
+        snapshot_sql = Path(
+            "dbt/include/watsonx_spark/macros/materializations/snapshot.sql"
+        ).read_text()
+
+        self.assertIn("using {{ source }} as DBT_INTERNAL_SOURCE", snapshot_sql)
+        self.assertIn("schema=target_relation.schema", snapshot_sql)
+        self.assertNotIn("using {{ source.identifier }} as DBT_INTERNAL_SOURCE", snapshot_sql)
