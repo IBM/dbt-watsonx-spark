@@ -279,6 +279,32 @@ class TestSparkMacros(unittest.TestCase):
 
         self.assertEqual(sql, "orders_incremental__dbt_tmp")
 
+    def test_macros_create_view_as_keeps_qualified_name_for_persistent_views(self):
+        template = self.__get_template("adapters.sql")
+        relation = RenderableRelation(
+            qualified_name="reporting_catalog.analytics_schema.orders_reporting_view",
+            identifier="orders_reporting_view",
+            schema="reporting_catalog.analytics_schema",
+            include_schema=True,
+        )
+
+        self.default_context["config"].persist_column_docs = lambda: False
+        self.default_context["adapter"].dispatch = (
+            lambda macro_name, macro_namespace=None, packages=None: getattr(
+                template.module, f"watsonx_spark__{macro_name}"
+            )
+        )
+        self.config["contract"] = SimpleNamespace(enforced=False)
+
+        sql = self.__normalize_sql(
+            template.module.watsonx_spark__create_view_as(relation, "select 1")
+        )
+
+        self.assertEqual(
+            sql,
+            "create or replace view reporting_catalog.analytics_schema.orders_reporting_view as select 1",
+        )
+
     def test_snapshot_macros_keep_qualified_staging_view_names(self):
         snapshot_sql = Path(
             "dbt/include/watsonx_spark/macros/materializations/snapshot.sql"
