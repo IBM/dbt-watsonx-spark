@@ -140,7 +140,7 @@
 
 {#-- We can't use temporary tables with `create ... as ()` syntax --#}
 {% macro watsonx_spark__create_temporary_view(relation, compiled_code) -%}
-    create or replace temporary view {{ relation }} as
+    create or replace view {{ relation }} as
       {{ compiled_code }}
 {%- endmacro -%}
 
