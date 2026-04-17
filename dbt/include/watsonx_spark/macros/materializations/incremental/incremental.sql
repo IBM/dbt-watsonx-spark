@@ -18,9 +18,12 @@
   {%- set target_relation = this -%}
   {%- set existing_relation = load_relation(this) -%}
   {% set tmp_relation = this.incorporate(path = {"identifier": this.identifier ~ '__dbt_tmp'}) -%}
-  {#-- for SQL model we will create temp view that doesn't have database and schema --#}
+  {#-- for SQL model we will create temp view --#}
+  {#-- Iceberg now supports three-part namespace for views, so we keep database and schema for Iceberg --#}
   {%- if language == 'sql'-%}
-    {%- set tmp_relation = tmp_relation.include(database=false, schema=false) -%}
+    {%- if not this.is_iceberg -%}
+      {%- set tmp_relation = tmp_relation.include(database=false, schema=false) -%}
+    {%- endif -%}
   {%- endif -%}
 
   {#-- Set Overwrite Mode --#}

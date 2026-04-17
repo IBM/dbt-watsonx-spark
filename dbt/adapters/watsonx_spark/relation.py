@@ -25,6 +25,14 @@ class SparkIncludePolicy(Policy):
     identifier: bool = True
 
 
+@dataclass
+class SparkIcebergIncludePolicy(Policy):
+    """Include policy for Iceberg relations supporting three-part namespace (catalog.schema.identifier)"""
+    database: bool = True
+    schema: bool = True
+    identifier: bool = True
+
+
 @dataclass(frozen=True, eq=False, repr=False)
 class SparkRelation(BaseRelation):
     quote_policy: Policy = field(default_factory=lambda: SparkQuotePolicy())
@@ -39,10 +47,22 @@ class SparkRelation(BaseRelation):
     catalog: Optional[str] = None
 
     def __post_init__(self) -> None:
+        # Update include policy for Iceberg relations to support three-part namespace
+        if self.is_iceberg:
+            object.__setattr__(self, 'include_policy', SparkIcebergIncludePolicy())
+        
         if self.database != self.schema and self.database:
             raise DbtRuntimeError("Cannot set database in spark!")
 
     def render(self) -> str:
+        # For Iceberg tables and views, allow three-part namespace (catalog.schema.identifier)
+        # The schema already contains catalog.schema from connections.py (line 194)
+        # So we just need to skip the validation that prevents both database and schema
+        if self.is_iceberg:
+            # For Iceberg, allow rendering with schema that contains catalog prefix
+            return super().render()
+        
+        # For non-Iceberg relations, maintain the original validation
         if self.include_policy.database and self.include_policy.schema:
             raise DbtRuntimeError(
                 "Got a spark relation with schema and database set to "
