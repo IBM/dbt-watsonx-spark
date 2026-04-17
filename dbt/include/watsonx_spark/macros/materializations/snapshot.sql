@@ -15,8 +15,12 @@
 {% macro watsonx_spark__snapshot_merge_sql(target, source, insert_cols) -%}
 
     merge into {{ target }} as DBT_INTERNAL_DEST
-    {# Iceberg now supports three-part namespace for views (catalog.schema.identifier) #}
-    using {{ source }} as DBT_INTERNAL_SOURCE
+    {% if target.is_iceberg %}
+      {# create view only supports a name (no catalog, or schema) #}
+      using {{ source.identifier }} as DBT_INTERNAL_SOURCE
+    {% else %}
+      using {{ source }} as DBT_INTERNAL_SOURCE
+    {% endif %}
     on DBT_INTERNAL_SOURCE.dbt_scd_id = DBT_INTERNAL_DEST.dbt_scd_id
     when matched
      and DBT_INTERNAL_DEST.dbt_valid_to is null
