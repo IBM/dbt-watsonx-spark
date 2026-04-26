@@ -412,28 +412,96 @@ class SparkConnectionManager(SQLConnectionManager):
             raise DbtRuntimeError(error_msg) from exc
             
         except Exception as exc:
-            logger.error(f"Error while running:\n{sql}")
-            logger.debug(str(exc))
+            # Extract error message first to check if it's a v2 table error or expected fallback error
+            is_v2_table_error = False
+            is_expected_fallback_error = False
+            error_msg = ""
             
-            if len(exc.args) == 0:
-                raise
-
-            thrift_resp = exc.args[0]
-            if hasattr(thrift_resp, "status") and hasattr(thrift_resp.status, "errorMessage"):
-                error_msg = thrift_resp.status.errorMessage
-                if "permission denied" in error_msg.lower():
-                    error_msg += " - Please check your access permissions for this operation."
-                elif "table not found" in error_msg.lower():
-                    error_msg += " - Please verify the table exists and is accessible."
-                elif "syntax error" in error_msg.lower():
-                    error_msg += " - Please check your SQL syntax."
+            logger.debug(f"[EXCEPTION_HANDLER] Exception caught, analyzing...")
+            logger.debug(f"[EXCEPTION_HANDLER] Exception type: {type(exc)}")
+            logger.debug(f"[EXCEPTION_HANDLER] Exception args length: {len(exc.args)}")
+            
+            if len(exc.args) > 0:
+                # First, check if args[0] is a string (wrapped exception like DbtDatabaseError)
+                if isinstance(exc.args[0], str):
+                    error_msg = exc.args[0]
+                    error_msg_lower = error_msg.lower()
                     
-                logger.error(error_msg)
-                raise DbtRuntimeError(error_msg) from exc
+                    logger.debug(f"[EXCEPTION_HANDLER] Error message is string (first 200 chars): {error_msg[:200]}")
+                    
+                    # Check if this is the expected v2 table error
+                    if "show table extended is not supported for v2 tables" in error_msg_lower:
+                        is_v2_table_error = True
+                        logger.debug(f"[EXCEPTION_HANDLER] ✓ Detected v2 table error - will suppress and use fallback")
+                        logger.debug(f"Expected v2 table error (will use fallback): SHOW TABLE EXTENDED not supported")
+                        raise DbtRuntimeError(error_msg) from exc
+                    
+                    # Check if this is an expected fallback error (schema not found during 2-part → 3-part fallback)
+                    elif "schema_not_found" in error_msg_lower or "nosuchdatabaseexception" in error_msg_lower:
+                        is_expected_fallback_error = True
+                        logger.debug(f"[EXCEPTION_HANDLER] ✓ Detected expected fallback error (schema not found) - will try next fallback")
+                        logger.debug(f"Expected fallback error: Schema not found with current name format, will try alternative")
+                        raise DbtRuntimeError(error_msg) from exc
+                    
+                    else:
+                        logger.debug(f"[EXCEPTION_HANDLER] ✗ NOT an expected error - will log normally")
+                        # Not an expected error, log it normally
+                        logger.error(f"Error while running:\n{sql}")
+                        logger.debug(str(exc))
+                        logger.error(error_msg)
+                        raise DbtRuntimeError(error_msg) from exc
+                
+                # Then check for Thrift response (raw exception)
+                thrift_resp = exc.args[0]
+                logger.debug(f"[EXCEPTION_HANDLER] Checking for thrift response: {hasattr(thrift_resp, 'status')}")
+                
+                if hasattr(thrift_resp, "status") and hasattr(thrift_resp.status, "errorMessage"):
+                    error_msg = thrift_resp.status.errorMessage
+                    error_msg_lower = error_msg.lower()
+                    
+                    logger.debug(f"[EXCEPTION_HANDLER] Error message from thrift (first 200 chars): {error_msg[:200]}")
+                    
+                    # Check if this is the expected v2 table error
+                    if "show table extended is not supported for v2 tables" in error_msg_lower:
+                        is_v2_table_error = True
+                        logger.debug(f"[EXCEPTION_HANDLER] ✓ Detected v2 table error - will suppress and use fallback")
+                        logger.debug(f"Expected v2 table error (will use fallback): SHOW TABLE EXTENDED not supported")
+                    
+                    # Check if this is an expected fallback error
+                    elif "schema_not_found" in error_msg_lower or "nosuchdatabaseexception" in error_msg_lower:
+                        is_expected_fallback_error = True
+                        logger.debug(f"[EXCEPTION_HANDLER] ✓ Detected expected fallback error (schema not found) - will try next fallback")
+                        logger.debug(f"Expected fallback error: Schema not found with current name format, will try alternative")
+                    
+                    else:
+                        logger.debug(f"[EXCEPTION_HANDLER] ✗ NOT an expected error - will log normally")
+                        # Not an expected error, log it normally
+                        logger.error(f"Error while running:\n{sql}")
+                        logger.debug(str(exc))
+                        
+                        # Enhance error message for common issues
+                        if "permission denied" in error_msg_lower:
+                            error_msg += " - Please check your access permissions for this operation."
+                        elif "table not found" in error_msg_lower:
+                            error_msg += " - Please verify the table exists and is accessible."
+                        elif "syntax error" in error_msg_lower:
+                            error_msg += " - Please check your SQL syntax."
+                        
+                        logger.error(error_msg)
+                    
+                    raise DbtRuntimeError(error_msg) from exc
+                else:
+                    # No error message in thrift response or string
+                    logger.debug(f"[EXCEPTION_HANDLER] No error message found in exception")
+                    logger.error(f"Error while running:\n{sql}")
+                    logger.debug(str(exc))
+                    error_msg = f"Error executing SQL: {str(exc)}"
+                    logger.error(error_msg)
+                    raise DbtRuntimeError(error_msg) from exc
             else:
-                error_msg = f"Error executing SQL: {str(exc)}"
-                logger.error(error_msg)
-                raise DbtRuntimeError(error_msg) from exc
+                # No args in exception
+                logger.debug(f"[EXCEPTION_HANDLER] No args in exception, re-raising")
+                raise
 
     def cancel(self, connection: Connection) -> None:
         connection.handle.cancel()

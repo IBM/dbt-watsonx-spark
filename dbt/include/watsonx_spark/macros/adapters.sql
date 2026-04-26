@@ -346,10 +346,22 @@
   {#-- V2 iceberg tables #}
   {#-- https://issues.apache.org/jira/browse/SPARK-33393 #}
   {#-- Table name is already quoted in Python (impl.py) to handle special characters #}
+  {#-- Try DESCRIBE EXTENDED first (works for non-v2, provides more metadata) #}
+  {#-- Python code will fallback to describe_table_without_caching if this fails #}
   {% call statement('describe_table_extended_without_caching', fetch_result=True) -%}
     describe extended {{ table_name }}
   {% endcall %}
   {% do return(load_result('describe_table_extended_without_caching').table) %}
+{% endmacro %}
+
+{% macro describe_table_without_caching(table_name) %}
+  {#-- Fallback for Iceberg v2 tables where DESCRIBE EXTENDED fails #}
+  {#-- DESCRIBE TABLE (without EXTENDED) works for v2 tables #}
+  {#-- Table name is already quoted in Python (impl.py) to handle special characters #}
+  {% call statement('describe_table_without_caching', fetch_result=True) -%}
+    describe table {{ table_name }}
+  {% endcall %}
+  {% do return(load_result('describe_table_without_caching').table) %}
 {% endmacro %}
 
 {% macro watsonx_spark__list_schemas(database) -%}
