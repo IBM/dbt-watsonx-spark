@@ -532,14 +532,21 @@ class SparkConnectionManager(SQLConnectionManager):
                         )
                         transport = authenticator.Authenticate(transport)
 
+                    # Pass catalog as database to avoid defaulting to spark_catalog
+                    # This is critical for AuthZ (ACExtension) support where spark_catalog doesn't exist
+                    # dbt will create the schema if it doesn't exist
                     conn = hive.connect(
                         thrift_transport=transport,
                         configuration=creds.server_side_parameters,
+                        database=creds.catalog,
                     )
                     handle = PyhiveConnectionWrapper(conn)
                 elif creds.method == SparkConnectionMethod.THRIFT:
                     cls.validate_creds(creds, ["host", "port", "user", "schema"])
 
+                    # Pass catalog as database to avoid defaulting to spark_catalog
+                    # This is critical for AuthZ (ACExtension) support where spark_catalog doesn't exist
+                    # dbt will create the schema if it doesn't exist
                     if creds.use_ssl:
                         transport = build_ssl_transport(
                             host=creds.host,
@@ -552,6 +559,7 @@ class SparkConnectionManager(SQLConnectionManager):
                         conn = hive.connect(
                             thrift_transport=transport,
                             configuration=creds.server_side_parameters,
+                            database=creds.catalog,
                         )
                     else:
                         conn = hive.connect(
@@ -562,6 +570,7 @@ class SparkConnectionManager(SQLConnectionManager):
                             kerberos_service_name=creds.kerberos_service_name,
                             password=creds.password,
                             configuration=creds.server_side_parameters,
+                            database=creds.catalog,
                         )  # noqa
                     handle = PyhiveConnectionWrapper(conn)
                 elif creds.method == SparkConnectionMethod.ODBC:
