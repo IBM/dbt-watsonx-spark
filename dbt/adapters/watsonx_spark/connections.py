@@ -191,6 +191,10 @@ class SparkCredentials(Credentials):
             self.token = authenticator.get_token()
 
         bucket, file_format = authenticator.get_catlog_details(self.catalog)
+        # Determine which catalog to use for connection connection_catalog will be replaced by catalog
+        # For Hudi/Delta: use spark_catalog (they prefix schema with spark_catalog.)
+        # For Iceberg/others: use the configured catalog
+        # This is critical for AuthZ (ACExtension) support where spark_catalog doesn't exist
         if file_format == "iceberg":
             self.schema = self.catalog + "." + self.schema
             self.connection_catalog = self.catalog
@@ -538,10 +542,6 @@ class SparkConnectionManager(SQLConnectionManager):
                         )
                         transport = authenticator.Authenticate(transport)
 
-                    # Determine which catalog to use for connection
-                    # For Hudi/Delta: use spark_catalog (they prefix schema with spark_catalog.)
-                    # For Iceberg/others: use the configured catalog
-                    # This is critical for AuthZ (ACExtension) support where spark_catalog doesn't exist
                     conn = hive.connect(
                         thrift_transport=transport,
                         configuration=creds.server_side_parameters,
@@ -553,10 +553,6 @@ class SparkConnectionManager(SQLConnectionManager):
                 elif creds.method == SparkConnectionMethod.THRIFT:
                     cls.validate_creds(creds, ["host", "port", "user", "schema"])
 
-                    # Determine which catalog to use for connection
-                    # For Hudi/Delta: use spark_catalog (they prefix schema with spark_catalog.)
-                    # For Iceberg/others: use the configured catalog
-                    # This is critical for AuthZ (ACExtension) support where spark_catalog doesn't exist
                     
                     if creds.use_ssl:
                         transport = build_ssl_transport(
