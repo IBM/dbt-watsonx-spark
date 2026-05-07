@@ -555,6 +555,7 @@ class SparkConnectionManager(SQLConnectionManager):
                         thrift_transport=transport,
                         configuration=creds.server_side_parameters,
                         database=connection_catalog,
+
                     )
                     handle = PyhiveConnectionWrapper(conn)
                 elif creds.method == SparkConnectionMethod.THRIFT:
