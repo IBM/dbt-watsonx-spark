@@ -532,21 +532,53 @@ class SparkConnectionManager(SQLConnectionManager):
                         )
                         transport = authenticator.Authenticate(transport)
 
-                    # Pass catalog as database to avoid defaulting to spark_catalog
+                    # Determine which catalog to use for connection
+                    # For Hudi/Delta: use spark_catalog (they prefix schema with spark_catalog.)
+                    # For Iceberg/others: use the configured catalog
                     # This is critical for AuthZ (ACExtension) support where spark_catalog doesn't exist
-                    # dbt will create the schema if it doesn't exist
+                    connection_catalog = creds.catalog
+                    try:
+                        authenticator = get_authenticator(
+                            creds.auth,
+                            host,
+                            creds.uri,
+                            creds.suppress_ssl_warnings
+                        )
+                        _, file_format = authenticator.get_catlog_details(creds.catalog)
+                        if file_format in ("delta", "hudi"):
+                            connection_catalog = "spark_catalog"
+                    except Exception:
+                        # If we can't determine format, use configured catalog
+                        pass
+                    
                     conn = hive.connect(
                         thrift_transport=transport,
                         configuration=creds.server_side_parameters,
-                        database=creds.catalog,
+                        database=connection_catalog,
                     )
                     handle = PyhiveConnectionWrapper(conn)
                 elif creds.method == SparkConnectionMethod.THRIFT:
                     cls.validate_creds(creds, ["host", "port", "user", "schema"])
 
-                    # Pass catalog as database to avoid defaulting to spark_catalog
+                    # Determine which catalog to use for connection
+                    # For Hudi/Delta: use spark_catalog (they prefix schema with spark_catalog.)
+                    # For Iceberg/others: use the configured catalog
                     # This is critical for AuthZ (ACExtension) support where spark_catalog doesn't exist
-                    # dbt will create the schema if it doesn't exist
+                    connection_catalog = creds.catalog
+                    try:
+                        authenticator = get_authenticator(
+                            creds.auth,
+                            creds.host,
+                            creds.uri,
+                            creds.suppress_ssl_warnings
+                        )
+                        _, file_format = authenticator.get_catlog_details(creds.catalog)
+                        if file_format in ("delta", "hudi"):
+                            connection_catalog = "spark_catalog"
+                    except Exception:
+                        # If we can't determine format, use configured catalog
+                        pass
+                    
                     if creds.use_ssl:
                         transport = build_ssl_transport(
                             host=creds.host,
@@ -559,7 +591,7 @@ class SparkConnectionManager(SQLConnectionManager):
                         conn = hive.connect(
                             thrift_transport=transport,
                             configuration=creds.server_side_parameters,
-                            database=creds.catalog,
+                            database=connection_catalog,
                         )
                     else:
                         conn = hive.connect(
@@ -570,7 +602,7 @@ class SparkConnectionManager(SQLConnectionManager):
                             kerberos_service_name=creds.kerberos_service_name,
                             password=creds.password,
                             configuration=creds.server_side_parameters,
-                            database=creds.catalog,
+                            database=connection_catalog,
                         )  # noqa
                     handle = PyhiveConnectionWrapper(conn)
                 elif creds.method == SparkConnectionMethod.ODBC:
