@@ -94,6 +94,7 @@ class SparkCredentials(Credentials):
     create_schemas: bool = True
     auto_location: bool = False
     suppress_ssl_warnings: bool = True
+    connection_catalog: Optional[str] = "default"
 
     @classmethod
     def __pre_deserialize__(cls, data: Any) -> Any:
@@ -190,10 +191,18 @@ class SparkCredentials(Credentials):
             self.token = authenticator.get_token()
 
         bucket, file_format = authenticator.get_catlog_details(self.catalog)
+        # Determine which catalog to use for connection connection_catalog will be replaced by catalog
+        # For Hudi/Delta: use spark_catalog (they prefix schema with spark_catalog.)
+        # For Iceberg/others: use the configured catalog
+        # This is critical for AuthZ (ACExtension) support where spark_catalog doesn't exist
         if file_format == "iceberg":
             self.schema = self.catalog + "." + self.schema
+            self.connection_catalog = self.catalog
         if file_format == "delta" or file_format == "hudi":
             self.schema = "spark_catalog." + self.schema
+            self.connection_catalog = "spark_catalog"
+        else:
+             self.connection_catalog = self.catalog
 
     @property
     def type(self) -> str:
@@ -490,6 +499,7 @@ class SparkConnectionManager(SQLConnectionManager):
 
         for i in range(1 + creds.connect_retries):
             try:
+                connection_catalog = creds.connection_catalog
                 if creds.method == SparkConnectionMethod.HTTP:
                     cls.validate_creds(creds, ["token", "host", "port", "cluster", "organization"])
 
@@ -532,21 +542,18 @@ class SparkConnectionManager(SQLConnectionManager):
                         )
                         transport = authenticator.Authenticate(transport)
 
-                    # Pass catalog as database to avoid defaulting to spark_catalog
-                    # This is critical for AuthZ (ACExtension) support where spark_catalog doesn't exist
-                    # dbt will create the schema if it doesn't exist
                     conn = hive.connect(
                         thrift_transport=transport,
                         configuration=creds.server_side_parameters,
-                        database=creds.catalog,
+                        database=connection_catalog,
+
                     )
+                    
                     handle = PyhiveConnectionWrapper(conn)
                 elif creds.method == SparkConnectionMethod.THRIFT:
                     cls.validate_creds(creds, ["host", "port", "user", "schema"])
 
-                    # Pass catalog as database to avoid defaulting to spark_catalog
-                    # This is critical for AuthZ (ACExtension) support where spark_catalog doesn't exist
-                    # dbt will create the schema if it doesn't exist
+                    
                     if creds.use_ssl:
                         transport = build_ssl_transport(
                             host=creds.host,
@@ -559,7 +566,7 @@ class SparkConnectionManager(SQLConnectionManager):
                         conn = hive.connect(
                             thrift_transport=transport,
                             configuration=creds.server_side_parameters,
-                            database=creds.catalog,
+                            database=connection_catalog,
                         )
                     else:
                         conn = hive.connect(
@@ -570,7 +577,7 @@ class SparkConnectionManager(SQLConnectionManager):
                             kerberos_service_name=creds.kerberos_service_name,
                             password=creds.password,
                             configuration=creds.server_side_parameters,
-                            database=creds.catalog,
+                            database=connection_catalog,
                         )  # noqa
                     handle = PyhiveConnectionWrapper(conn)
                 elif creds.method == SparkConnectionMethod.ODBC:
