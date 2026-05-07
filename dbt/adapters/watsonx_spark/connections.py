@@ -493,6 +493,7 @@ class SparkConnectionManager(SQLConnectionManager):
 
         for i in range(1 + creds.connect_retries):
             try:
+                connection_catalog = creds.connection_catalog
                 if creds.method == SparkConnectionMethod.HTTP:
                     cls.validate_creds(creds, ["token", "host", "port", "cluster", "organization"])
 
@@ -539,7 +540,6 @@ class SparkConnectionManager(SQLConnectionManager):
                     # For Hudi/Delta: use spark_catalog (they prefix schema with spark_catalog.)
                     # For Iceberg/others: use the configured catalog
                     # This is critical for AuthZ (ACExtension) support where spark_catalog doesn't exist
-                    connection_catalog = creds.connection_catalog
                     conn = hive.connect(
                         thrift_transport=transport,
                         configuration=creds.server_side_parameters,
@@ -555,20 +555,6 @@ class SparkConnectionManager(SQLConnectionManager):
                     # For Hudi/Delta: use spark_catalog (they prefix schema with spark_catalog.)
                     # For Iceberg/others: use the configured catalog
                     # This is critical for AuthZ (ACExtension) support where spark_catalog doesn't exist
-                    connection_catalog = creds.catalog
-                    try:
-                        authenticator = get_authenticator(
-                            creds.auth,
-                            creds.host,
-                            creds.uri,
-                            creds.suppress_ssl_warnings
-                        )
-                        _, file_format = authenticator.get_catlog_details(creds.catalog)
-                        if file_format in ("delta", "hudi"):
-                            connection_catalog = "spark_catalog"
-                    except Exception:
-                        # If we can't determine format, use configured catalog
-                        pass
                     
                     if creds.use_ssl:
                         transport = build_ssl_transport(
