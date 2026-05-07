@@ -94,6 +94,7 @@ class SparkCredentials(Credentials):
     create_schemas: bool = True
     auto_location: bool = False
     suppress_ssl_warnings: bool = True
+    connection_catalog: Optional[str] = "default"
 
     @classmethod
     def __pre_deserialize__(cls, data: Any) -> Any:
@@ -192,8 +193,10 @@ class SparkCredentials(Credentials):
         bucket, file_format = authenticator.get_catlog_details(self.catalog)
         if file_format == "iceberg":
             self.schema = self.catalog + "." + self.schema
+            self.connection_catalog = self.catalog
         if file_format == "delta" or file_format == "hudi":
             self.schema = "spark_catalog." + self.schema
+            self.connection_catalog = "spark_catalog" 
 
     @property
     def type(self) -> str:
@@ -536,27 +539,14 @@ class SparkConnectionManager(SQLConnectionManager):
                     # For Hudi/Delta: use spark_catalog (they prefix schema with spark_catalog.)
                     # For Iceberg/others: use the configured catalog
                     # This is critical for AuthZ (ACExtension) support where spark_catalog doesn't exist
-                    connection_catalog = creds.catalog
-                    try:
-                        authenticator = get_authenticator(
-                            creds.auth,
-                            host,
-                            creds.uri,
-                            creds.suppress_ssl_warnings
-                        )
-                        _, file_format = authenticator.get_catlog_details(creds.catalog)
-                        if file_format in ("delta", "hudi"):
-                            connection_catalog = "spark_catalog"
-                    except Exception:
-                        # If we can't determine format, use configured catalog
-                        pass
-                    
+                    connection_catalog = creds.connection_catalog
                     conn = hive.connect(
                         thrift_transport=transport,
                         configuration=creds.server_side_parameters,
                         database=connection_catalog,
 
                     )
+                    
                     handle = PyhiveConnectionWrapper(conn)
                 elif creds.method == SparkConnectionMethod.THRIFT:
                     cls.validate_creds(creds, ["host", "port", "user", "schema"])
