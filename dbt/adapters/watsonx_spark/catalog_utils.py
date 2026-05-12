@@ -145,6 +145,9 @@ class CatalogUtils:
         This function properly quotes both the schema (which may contain catalog.schema)
         and the table name separately to handle special characters.
         
+        When schema contains a catalog prefix (catalog.schema), each part is quoted
+        separately to produce `catalog`.`schema`.`table` instead of `catalog.schema`.`table`.
+        
         Args:
             schema: Schema name, possibly with catalog prefix (catalog.schema)
             table: Table name
@@ -156,11 +159,19 @@ class CatalogUtils:
             >>> CatalogUtils.quote_schema_table("uk0429", "my_table")
             '`uk0429`.`my_table`'
             >>> CatalogUtils.quote_schema_table("iceberg_data.uk0429", "test-special-chars")
-            '`iceberg_data.uk0429`.`test-special-chars`'
+            '`iceberg_data`.`uk0429`.`test-special-chars`'
         """
-        quoted_schema = CatalogUtils.quote_identifier(schema)
-        quoted_table = CatalogUtils.quote_identifier(table)
-        return f"{quoted_schema}.{quoted_table}"
+        # Check if schema contains catalog prefix
+        if CatalogUtils.has_catalog_prefix(schema):
+            catalog, schema_only = CatalogUtils.split_catalog_schema(schema)
+            quoted_catalog = CatalogUtils.quote_identifier(catalog)
+            quoted_schema = CatalogUtils.quote_identifier(schema_only)
+            quoted_table = CatalogUtils.quote_identifier(table)
+            return f"{quoted_catalog}.{quoted_schema}.{quoted_table}"
+        else:
+            quoted_schema = CatalogUtils.quote_identifier(schema)
+            quoted_table = CatalogUtils.quote_identifier(table)
+            return f"{quoted_schema}.{quoted_table}"
 
     @staticmethod
     def build_qualified_name(

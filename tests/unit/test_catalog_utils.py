@@ -141,14 +141,14 @@ class TestQuoteSchemaTable:
         assert CatalogUtils.quote_schema_table("default", "users") == "`default`.`users`"
 
     def test_catalog_schema_table(self):
-        """Test quoting catalog.schema.table."""
-        assert CatalogUtils.quote_schema_table("iceberg_data.uk0429", "my_table") == "`iceberg_data.uk0429`.`my_table`"
-        assert CatalogUtils.quote_schema_table("spark_catalog.default", "users") == "`spark_catalog.default`.`users`"
+        """Test quoting catalog.schema.table - each part quoted separately."""
+        assert CatalogUtils.quote_schema_table("iceberg_data.uk0429", "my_table") == "`iceberg_data`.`uk0429`.`my_table`"
+        assert CatalogUtils.quote_schema_table("spark_catalog.default", "users") == "`spark_catalog`.`default`.`users`"
 
     def test_with_special_characters(self):
         """Test quoting with special characters."""
         assert CatalogUtils.quote_schema_table("uk0429", "test-special-chars") == "`uk0429`.`test-special-chars`"
-        assert CatalogUtils.quote_schema_table("iceberg_data.uk0429", "test-special-chars") == "`iceberg_data.uk0429`.`test-special-chars`"
+        assert CatalogUtils.quote_schema_table("iceberg_data.uk0429", "test-special-chars") == "`iceberg_data`.`uk0429`.`test-special-chars`"
 
 
 class TestBuildQualifiedName:
@@ -157,7 +157,7 @@ class TestBuildQualifiedName:
     def test_with_quoting(self):
         """Test building qualified name with quoting."""
         assert CatalogUtils.build_qualified_name("uk0429", "my_table", quote=True) == "`uk0429`.`my_table`"
-        assert CatalogUtils.build_qualified_name("iceberg_data.uk0429", "my_table", quote=True) == "`iceberg_data.uk0429`.`my_table`"
+        assert CatalogUtils.build_qualified_name("iceberg_data.uk0429", "my_table", quote=True) == "`iceberg_data`.`uk0429`.`my_table`"
 
     def test_without_quoting(self):
         """Test building qualified name without quoting."""
