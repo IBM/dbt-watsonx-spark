@@ -81,7 +81,7 @@ class SparkConfig(AdapterConfig):
     catalog: Optional[str] = None
 
 
-class SparkAdapter(SQLAdapter):
+class WatsonxSparkAdapter(SQLAdapter):
     COLUMN_NAMES = (
         "table_database",
         "table_schema",
@@ -127,6 +127,23 @@ class SparkAdapter(SQLAdapter):
     Column: TypeAlias = SparkColumn
     ConnectionManager: TypeAlias = SparkConnectionManager
     AdapterSpecificConfigs: TypeAlias = SparkConfig
+
+    @classmethod
+    def get_adapter_run_info(cls, config):
+        """Override to use correct adapter name with underscore."""
+        from importlib import import_module
+        from dbt.adapters.base import AdapterTrackingRelationInfo
+        
+        # Use the correct adapter name that matches our package directory
+        adapter_name = "watsonx_spark"
+        adapter_version = import_module(f"dbt.adapters.{adapter_name}.__version__").version
+        
+        return AdapterTrackingRelationInfo(
+            adapter_name=adapter_name,
+            base_adapter_version=import_module("dbt.adapters.__about__").version,
+            adapter_version=adapter_version,
+            model_adapter_details=cls._get_adapter_specific_run_info(config),
+        )
 
     @classmethod
     def date_function(cls) -> str:
