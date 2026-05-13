@@ -309,60 +309,92 @@ class WatsonxSparkAdapter(SQLAdapter):
         # This preserves the full catalog.schema path when SHOW TABLES loses catalog context
         self._list_relations_schema_context = schema_relation.schema
         
-        logger.debug(f"Listing relations in schema: {schema_relation}")
+        logger.debug(f"[LIST_RELATIONS] Starting - schema_relation: {schema_relation}")
+        logger.debug(f"[LIST_RELATIONS] schema_relation.schema: {schema_relation.schema}")
+        logger.debug(f"[LIST_RELATIONS] schema_relation.database: {schema_relation.database}")
         
         # Try 2-part name first (schema only), then fallback to 3-part (catalog.schema)
         schema_to_try = schema_relation.schema
         has_catalog = CatalogUtils.has_catalog_prefix(schema_relation.schema)
         
+        logger.debug(f"[LIST_RELATIONS] has_catalog: {has_catalog}")
+        
         if has_catalog:
             # Extract 2-part name (schema only) to try first
             schema_to_try = CatalogUtils.get_schema_only(schema_relation.schema)
-            logger.debug(f"Schema has catalog prefix, trying 2-part name first: {schema_to_try}")
+            logger.debug(f"[LIST_RELATIONS] Schema has catalog prefix, trying 2-part name first")
+            logger.debug(f"[LIST_RELATIONS] Original schema: {schema_relation.schema}")
+            logger.debug(f"[LIST_RELATIONS] 2-part schema to try: {schema_to_try}")
         
         try:
             # Try SHOW TABLE EXTENDED with 2-part name first (fast path for v1 tables)
-            kwargs_2part = {"schema_relation": schema_relation.incorporate(path={"schema": schema_to_try})}
+            schema_relation_2part = schema_relation.incorporate(path={"schema": schema_to_try})
+            logger.debug(f"[LIST_RELATIONS] Created 2-part relation: {schema_relation_2part}")
+            logger.debug(f"[LIST_RELATIONS] 2-part relation.schema: {schema_relation_2part.schema}")
+            
+            kwargs_2part = {"schema_relation": schema_relation_2part}
+            logger.debug(f"[LIST_RELATIONS] Calling LIST_RELATIONS_MACRO with 2-part name")
+            
             show_table_extended_rows = self.execute_macro(
                 LIST_RELATIONS_MACRO_NAME, kwargs=kwargs_2part
             )
-            logger.debug(f"SHOW TABLE EXTENDED (2-part) succeeded, got {len(show_table_extended_rows) if show_table_extended_rows else 0} rows")
+            logger.debug(f"[LIST_RELATIONS] SHOW TABLE EXTENDED (2-part) succeeded, got {len(show_table_extended_rows) if show_table_extended_rows else 0} rows")
             
             # Build relations from SHOW TABLE EXTENDED results
+            logger.debug(f"[LIST_RELATIONS] Building relations from {len(show_table_extended_rows) if show_table_extended_rows else 0} rows")
             rels = self._build_spark_relation_list(
                 row_list=show_table_extended_rows,
                 relation_info_func=self._get_relation_information,
             )
+            logger.debug(f"[LIST_RELATIONS] Built {len(rels)} relations")
+            
             # Restore full catalog.schema if it was present
             if has_catalog:
+                logger.debug(f"[LIST_RELATIONS] Restoring full catalog.schema to relations")
+                logger.debug(f"[LIST_RELATIONS] Original schema to restore: {schema_relation.schema}")
+                rels_before = [f"{r.schema}.{r.identifier}" for r in rels]
                 rels = [r.incorporate(path={"schema": schema_relation.schema}) for r in rels]
+                rels_after = [f"{r.schema}.{r.identifier}" for r in rels]
+                logger.debug(f"[LIST_RELATIONS] Relations before restore: {rels_before}")
+                logger.debug(f"[LIST_RELATIONS] Relations after restore: {rels_after}")
             
-            logger.info(f"Listed {len(rels)} relations using SHOW TABLE EXTENDED (2-part)")
+            logger.info(f"[LIST_RELATIONS] Listed {len(rels)} relations using SHOW TABLE EXTENDED (2-part)")
             return rels
             
         except DbtRuntimeError as e_2part:
             # 2-part name failed, try 3-part name if catalog prefix exists
             if has_catalog:
-                logger.debug(f"SHOW TABLE EXTENDED (2-part) failed, trying 3-part name: {schema_relation.schema}")
+                logger.debug(f"[LIST_RELATIONS] SHOW TABLE EXTENDED (2-part) failed")
+                logger.debug(f"[LIST_RELATIONS] Error: {str(e_2part)[:200]}")
+                logger.debug(f"[LIST_RELATIONS] Trying 3-part name: {schema_relation.schema}")
+                logger.debug(f"[LIST_RELATIONS] Original kwargs schema: {kwargs['schema_relation'].schema}")
+                
                 try:
+                    logger.debug(f"[LIST_RELATIONS] Calling LIST_RELATIONS_MACRO with 3-part name")
                     show_table_extended_rows = self.execute_macro(
                         LIST_RELATIONS_MACRO_NAME, kwargs=kwargs
                     )
-                    logger.debug(f"SHOW TABLE EXTENDED (3-part) succeeded, got {len(show_table_extended_rows) if show_table_extended_rows else 0} rows")
+                    logger.debug(f"[LIST_RELATIONS] SHOW TABLE EXTENDED (3-part) succeeded, got {len(show_table_extended_rows) if show_table_extended_rows else 0} rows")
                     
                     # Build relations from SHOW TABLE EXTENDED results
+                    logger.debug(f"[LIST_RELATIONS] Building relations from 3-part query results")
                     rels = self._build_spark_relation_list(
                         row_list=show_table_extended_rows,
                         relation_info_func=self._get_relation_information,
                     )
                     # Schema already has catalog prefix, no need to restore
+                    logger.debug(f"[LIST_RELATIONS] Built {len(rels)} relations from 3-part query")
+                    rels_list = [f"{r.schema}.{r.identifier}" for r in rels]
+                    logger.debug(f"[LIST_RELATIONS] Relations from 3-part: {rels_list}")
                     
-                    logger.info(f"Listed {len(rels)} relations using SHOW TABLE EXTENDED (3-part)")
+                    logger.info(f"[LIST_RELATIONS] Listed {len(rels)} relations using SHOW TABLE EXTENDED (3-part)")
                     return rels
                     
                 except DbtRuntimeError as e_3part:
                     # Both 2-part and 3-part failed, continue to SHOW TABLES fallback
-                    logger.debug(f"SHOW TABLE EXTENDED (3-part) also failed, falling back to SHOW TABLES")
+                    logger.debug(f"[LIST_RELATIONS] SHOW TABLE EXTENDED (3-part) also failed")
+                    logger.debug(f"[LIST_RELATIONS] Error: {str(e_3part)[:200]}")
+                    logger.debug(f"[LIST_RELATIONS] Falling back to SHOW TABLES")
                     e = e_3part
             else:
                 # No catalog prefix, can't try 3-part

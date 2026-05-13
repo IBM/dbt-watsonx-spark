@@ -323,6 +323,10 @@
 {% endmacro %}
 
 {% macro watsonx_spark__list_relations_without_caching(relation) %}
+  {%- set sql_query = "show table extended in " ~ relation.schema ~ " like '*'" -%}
+  {{ log("[MACRO] list_relations_without_caching SQL: " ~ sql_query, info=True) }}
+  {{ log("[MACRO] relation.schema = " ~ relation.schema, info=True) }}
+  {{ log("[MACRO] relation object = " ~ relation, info=True) }}
   {% call statement('list_relations_without_caching', fetch_result=True) -%}
       show table extended in {{ relation.schema }} like '*'
   {% endcall %}
@@ -334,6 +338,10 @@
   {#-- Spark with iceberg tables don't work with show table extended for #}
   {#-- V2 iceberg tables #}
   {#-- https://issues.apache.org/jira/browse/SPARK-33393 #}
+  {%- set sql_query = "show tables in " ~ schema_relation.schema ~ " like '*'" -%}
+  {{ log("[MACRO] list_relations_show_tables_without_caching SQL: " ~ sql_query, info=True) }}
+  {{ log("[MACRO] schema_relation.schema = " ~ schema_relation.schema, info=True) }}
+  {{ log("[MACRO] schema_relation object = " ~ schema_relation, info=True) }}
   {% call statement('list_relations_without_caching_show_tables', fetch_result=True) -%}
     show tables in {{ schema_relation.schema }} like '*'
   {% endcall %}

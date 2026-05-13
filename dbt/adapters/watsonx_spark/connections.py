@@ -771,6 +771,14 @@ class SparkConnectionManager(SQLConnectionManager):
 
         connection.handle = handle
         connection.state = ConnectionState.OPEN
+        
+        # Note: USE CATALOG is not supported in all Spark distributions
+        # (especially those with Delta/Iceberg/Hudi extensions)
+        # The adapter will use 3-part names (catalog.schema.table) when catalog is specified
+        if creds.catalog:
+            logger.debug(f"Catalog configured: {creds.catalog}")
+            logger.debug("Will use 3-part names (catalog.schema.table) for all operations")
+        
         return connection
 
     @classmethod
