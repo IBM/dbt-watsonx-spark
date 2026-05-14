@@ -17,6 +17,7 @@ logs/
 .tox/
 .env
 test.env
+.venv
 
 
 # Django stuff

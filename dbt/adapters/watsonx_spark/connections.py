@@ -273,18 +273,23 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
             # the connection is cancelled
             try:
                 self._cursor.cancel()
-            except EnvironmentError as exc:
+            except (EnvironmentError, EOFError) as exc:
                 logger.debug("Exception while cancelling query: {}".format(exc))
 
     def close(self) -> None:
         if self._cursor:
             # Handle bad response in the pyhive lib when
-            # the connection is cancelled
+            # the connection is cancelled or connection is already closed
             try:
                 self._cursor.close()
-            except EnvironmentError as exc:
+            except (EnvironmentError, EOFError) as exc:
                 logger.debug("Exception while closing cursor: {}".format(exc))
-        self.handle.close()
+        
+        # Handle connection close errors gracefully
+        try:
+            self.handle.close()
+        except (EnvironmentError, EOFError) as exc:
+            logger.debug("Exception while closing connection handle: {}".format(exc))
 
     def rollback(self, *args: Any, **kwargs: Any) -> None:
         logger.debug("NotImplemented: rollback")
@@ -318,14 +323,33 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
         assert self._cursor, "Cursor not available"
 
         self._cursor.execute(sql, bindings, async_=True)
-        poll_state = self._cursor.poll()
-        state = poll_state.operationState
+        
+        try:
+            poll_state = self._cursor.poll()
+            state = poll_state.operationState
+        except EOFError as e:
+            error_msg = (
+                "Connection lost while polling query status. "
+                "This may indicate the server closed the connection unexpectedly. "
+                "Please check server logs and network connectivity."
+            )
+            logger.error(error_msg)
+            raise DbtDatabaseError(error_msg) from e
 
         while state in STATE_PENDING:
             logger.debug("Poll status: {}, sleeping".format(state))
 
-            poll_state = self._cursor.poll()
-            state = poll_state.operationState
+            try:
+                poll_state = self._cursor.poll()
+                state = poll_state.operationState
+            except EOFError as e:
+                error_msg = (
+                    "Connection lost while polling query status. "
+                    "The query may still be running on the server. "
+                    "Please check server logs for query status."
+                )
+                logger.error(error_msg)
+                raise DbtDatabaseError(error_msg) from e
 
         # If an errorMessage is present, then raise a database exception
         # with that exact message. If no errorMessage is present, the
@@ -663,13 +687,23 @@ class SparkConnectionManager(SQLConnectionManager):
                 raise FailedToConnectError(msg) from e
             except EOFError as e:
                 exc = e
-                # The user almost certainly has invalid credentials.
-                # Perhaps a token expired, or something
-                msg = "Failed to connect - authentication error"
+                # EOFError can indicate authentication issues or connection drops
+                msg = "Connection closed unexpectedly (EOFError)"
                 if creds.token is not None:
-                    msg += ". Please check if your token is valid and not expired."
-                logger.error(msg)
-                raise FailedToConnectError(msg) from e
+                    msg += ". This may indicate an authentication error - please check if your token is valid and not expired."
+                else:
+                    msg += ". This may indicate a network issue or server-side connection problem."
+                
+                # Check if we should retry
+                if creds.connect_retries > 0 and i < creds.connect_retries:
+                    logger.warning(
+                        f"{msg}\n\tRetrying in {creds.connect_timeout} seconds "
+                        f"({i + 1} of {creds.connect_retries})"
+                    )
+                    time.sleep(creds.connect_timeout)
+                else:
+                    logger.error(msg)
+                    raise FailedToConnectError(msg) from e
             except Exception as e:
                 exc = e
                 retryable_message = _is_retryable_error(e)
