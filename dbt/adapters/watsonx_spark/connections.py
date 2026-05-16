@@ -95,6 +95,7 @@ class SparkCredentials(Credentials):
     auto_location: bool = False
     suppress_ssl_warnings: bool = True
     connection_catalog: Optional[str] = "default"
+    quote_identifiers: bool = True  # Quote table/schema names to handle special characters
 
     @classmethod
     def __pre_deserialize__(cls, data: Any) -> Any:
@@ -411,28 +412,71 @@ class SparkConnectionManager(SQLConnectionManager):
             raise DbtRuntimeError(error_msg) from exc
             
         except Exception as exc:
-            logger.error(f"Error while running:\n{sql}")
-            logger.debug(str(exc))
+            # Extract error message to check if it's an expected fallback error
+            error_msg = ""
             
-            if len(exc.args) == 0:
-                raise
-
-            thrift_resp = exc.args[0]
-            if hasattr(thrift_resp, "status") and hasattr(thrift_resp.status, "errorMessage"):
-                error_msg = thrift_resp.status.errorMessage
-                if "permission denied" in error_msg.lower():
-                    error_msg += " - Please check your access permissions for this operation."
-                elif "table not found" in error_msg.lower():
-                    error_msg += " - Please verify the table exists and is accessible."
-                elif "syntax error" in error_msg.lower():
-                    error_msg += " - Please check your SQL syntax."
+            if len(exc.args) > 0:
+                # First, check if args[0] is a string (wrapped exception like DbtDatabaseError)
+                if isinstance(exc.args[0], str):
+                    error_msg = exc.args[0]
+                    error_msg_lower = error_msg.lower()
                     
-                logger.error(error_msg)
-                raise DbtRuntimeError(error_msg) from exc
+                    # Check if this is the expected v2 table error (will use fallback silently)
+                    if "show table extended is not supported for v2 tables" in error_msg_lower:
+                        raise DbtRuntimeError(error_msg) from exc
+                    
+                    # Check if this is an expected fallback error (schema not found during fallback attempts)
+                    elif "schema_not_found" in error_msg_lower or "nosuchdatabaseexception" in error_msg_lower:
+                        raise DbtRuntimeError(error_msg) from exc
+                    
+                    else:
+                        # Not an expected error, log it normally
+                        logger.error(f"Error while running:\n{sql}")
+                        logger.debug(str(exc))
+                        logger.error(error_msg)
+                        raise DbtRuntimeError(error_msg) from exc
+                
+                # Then check for Thrift response (raw exception)
+                thrift_resp = exc.args[0]
+                
+                if hasattr(thrift_resp, "status") and hasattr(thrift_resp.status, "errorMessage"):
+                    error_msg = thrift_resp.status.errorMessage
+                    error_msg_lower = error_msg.lower()
+                    
+                    # Check if this is the expected v2 table error (will use fallback silently)
+                    if "show table extended is not supported for v2 tables" in error_msg_lower:
+                        pass  # Expected error, will use fallback
+                    
+                    # Check if this is an expected fallback error (will try next fallback silently)
+                    elif "schema_not_found" in error_msg_lower or "nosuchdatabaseexception" in error_msg_lower:
+                        pass  # Expected error, will try alternative
+                    
+                    else:
+                        # Not an expected error, log it normally
+                        logger.error(f"Error while running:\n{sql}")
+                        logger.debug(str(exc))
+                        
+                        # Enhance error message for common issues
+                        if "permission denied" in error_msg_lower:
+                            error_msg += " - Please check your access permissions for this operation."
+                        elif "table not found" in error_msg_lower:
+                            error_msg += " - Please verify the table exists and is accessible."
+                        elif "syntax error" in error_msg_lower:
+                            error_msg += " - Please check your SQL syntax."
+                        
+                        logger.error(error_msg)
+                    
+                    raise DbtRuntimeError(error_msg) from exc
+                else:
+                    # No error message in thrift response or string
+                    logger.error(f"Error while running:\n{sql}")
+                    logger.debug(str(exc))
+                    error_msg = f"Error executing SQL: {str(exc)}"
+                    logger.error(error_msg)
+                    raise DbtRuntimeError(error_msg) from exc
             else:
-                error_msg = f"Error executing SQL: {str(exc)}"
-                logger.error(error_msg)
-                raise DbtRuntimeError(error_msg) from exc
+                # No args in exception
+                raise
 
     def cancel(self, connection: Connection) -> None:
         connection.handle.cancel()
@@ -663,11 +707,24 @@ class SparkConnectionManager(SQLConnectionManager):
                 raise FailedToConnectError(msg) from e
             except EOFError as e:
                 exc = e
-                # The user almost certainly has invalid credentials.
-                # Perhaps a token expired, or something
-                msg = "Failed to connect - authentication error"
+                # EOFError typically indicates connection was closed unexpectedly
+                # This could be due to network issues, server problems, or authentication
+                msg = "Failed to connect to Spark Query Server - connection closed unexpectedly (EOFError)"
+                
+                # Provide specific guidance based on configuration
                 if creds.token is not None:
-                    msg += ". Please check if your token is valid and not expired."
+                    msg += "\n  Possible causes:\n"
+                    msg += "  - Token may be invalid or expired\n"
+                    msg += "  - Query server may not be running or accessible\n"
+                    msg += "  - Network connectivity issues\n"
+                    msg += "  Please verify: token validity, server status, and network connectivity"
+                else:
+                    msg += "\n  Possible causes:\n"
+                    msg += "  - Query server may not be running or accessible\n"
+                    msg += "  - Network connectivity issues\n"
+                    msg += "  - Authentication configuration may be incorrect\n"
+                    msg += "  Please verify: server status, network connectivity, and authentication settings"
+                
                 logger.error(msg)
                 raise FailedToConnectError(msg) from e
             except Exception as e:
@@ -702,6 +759,14 @@ class SparkConnectionManager(SQLConnectionManager):
 
         connection.handle = handle
         connection.state = ConnectionState.OPEN
+        
+        # Note: USE CATALOG is not supported in all Spark distributions
+        # (especially those with Delta/Iceberg/Hudi extensions)
+        # The adapter will use 3-part names (catalog.schema.table) when catalog is specified
+        if creds.catalog:
+            logger.debug(f"Catalog configured: {creds.catalog}")
+            logger.debug("Will use 3-part names (catalog.schema.table) for all operations")
+        
         return connection
 
     @classmethod

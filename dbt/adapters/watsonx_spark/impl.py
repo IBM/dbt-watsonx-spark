@@ -28,6 +28,7 @@ import agate
 
 from dbt.adapters.base import AdapterConfig, PythonJobHelper
 from dbt.adapters.base.impl import catch_as_completed, ConstraintSupport
+from dbt.adapters.watsonx_spark.catalog_utils import CatalogUtils
 from dbt.adapters.sql import SQLAdapter
 from dbt.adapters.watsonx_spark import (
     SparkConnectionManager,
@@ -56,6 +57,7 @@ LIST_SCHEMAS_MACRO_NAME = "list_schemas"
 LIST_RELATIONS_MACRO_NAME = "list_relations_without_caching"
 LIST_RELATIONS_SHOW_TABLES_MACRO_NAME = "list_relations_show_tables_without_caching"
 DESCRIBE_TABLE_EXTENDED_MACRO_NAME = "describe_table_extended_without_caching"
+DESCRIBE_TABLE_MACRO_NAME = "describe_table_without_caching"
 CREATE_SCHEMA_MACRO_NAME = "create_schema"
 CREATE_TABLE_MACRO_NAME = "create_table_as"
 
@@ -199,14 +201,55 @@ class WatsonxSparkAdapter(SQLAdapter):
                 f'Invalid value from "show tables ...", got {len(row)} values, expected 3'
             )
 
-        table_name = f"{_schema}.{name}"
+        # Check if identifier quoting is enabled (default: True)
+        creds = self.connections.get_thread_connection().credentials
+        quote_identifiers = getattr(creds, 'quote_identifiers', True)
+        
+        # FALLBACK FIX for Spark SQL ShowTablesExec bug (SPARK-XXXXX)
+        # When SHOW TABLES IN catalog.schema returns only "schema" instead of "catalog.schema",
+        # we need to preserve the full catalog path from the original query context.
+        # This is a temporary workaround until the server-side fix is deployed.
+        context_schema = getattr(self, '_list_relations_schema_context', None)
+        full_schema = CatalogUtils.normalize_schema_from_show_tables(_schema, context_schema)
+        
+        if full_schema != _schema:
+            logger.debug(
+                f"[CATALOG_FIX] SHOW TABLES returned schema='{_schema}', "
+                f"using full context='{full_schema}' for table '{name}'"
+            )
+        
+        # Quote schema and table name separately to handle special characters
+        if quote_identifiers:
+            table_name = CatalogUtils.quote_schema_table(full_schema, name)
+        else:
+            table_name = f"{full_schema}.{name}"
+        
+        # Try DESCRIBE EXTENDED first (works for v1 tables, provides more metadata)
+        # If it fails for ANY reason, fall back to DESCRIBE TABLE (works for v2 tables)
         try:
             table_results = self.execute_macro(
                 DESCRIBE_TABLE_EXTENDED_MACRO_NAME, kwargs={"table_name": table_name}
             )
+            logger.debug(f"DESCRIBE EXTENDED succeeded for {table_name}")
         except DbtRuntimeError as e:
-            logger.debug(f"Error while retrieving information about {table_name}: {e.msg}")
-            table_results = AttrDict()
+            errmsg = getattr(e, "msg", "").lower()
+            
+            # For ANY DESCRIBE EXTENDED failure, try DESCRIBE TABLE (without EXTENDED)
+            # This handles:
+            # - v2 tables (Iceberg, Delta, etc.)
+            # - Tables with special characters or naming issues
+            # - Any other DESCRIBE EXTENDED incompatibilities
+            logger.debug(f"DESCRIBE EXTENDED failed for {table_name}, trying DESCRIBE TABLE: {errmsg[:100]}")
+            try:
+                table_results = self.execute_macro(
+                    DESCRIBE_TABLE_MACRO_NAME, kwargs={"table_name": table_name}
+                )
+                logger.debug(f"DESCRIBE TABLE succeeded for {table_name}")
+            except DbtRuntimeError as e2:
+                # If both DESCRIBE commands fail, return empty results
+                # The table will still be listed, just without detailed metadata
+                logger.debug(f"Both DESCRIBE commands failed for {table_name}: {e2.msg[:100]}")
+                table_results = AttrDict()
 
         information = ""
         for info_row in table_results:
@@ -248,54 +291,141 @@ class WatsonxSparkAdapter(SQLAdapter):
 
     def list_relations_without_caching(self, schema_relation: BaseRelation) -> List[BaseRelation]:
         """Distinct Spark compute engines may not support the same SQL featureset. Thus, we must
-        try different methods to fetch relation information."""
+        try different methods to fetch relation information.
+        
+        Strategy (OPTIMIZED WITH FALLBACK):
+        1. Try SHOW TABLE EXTENDED first (fast for v1 tables - gets all metadata in one query)
+        2. If it fails (v2 tables), fallback to SHOW TABLES + per-table DESCRIBE
+        
+        This ensures optimal performance:
+        - v1 schemas: Fast (one SHOW TABLE EXTENDED query)
+        - v2 schemas: Works (fallback to SHOW TABLES + per-table DESCRIBE)
+        - Mixed schemas: Works (fallback handles both)
+        """
 
         kwargs = {"schema_relation": schema_relation}
+        
+        # Store schema context for fallback fix in _get_relation_information_using_describe
+        self._list_relations_schema_context = schema_relation.schema
+        
+        # Check if schema has catalog prefix
+        has_catalog = CatalogUtils.has_catalog_prefix(schema_relation.schema)
+        schema_to_try = schema_relation.schema
+        
+        if has_catalog:
+            # Extract 2-part name (schema only) for fallback
+            schema_to_try = CatalogUtils.get_schema_only(schema_relation.schema)
+        
         try:
+            # Try SHOW TABLE EXTENDED with 3-part name first (preferred for v2 tables)
             show_table_extended_rows = self.execute_macro(
                 LIST_RELATIONS_MACRO_NAME, kwargs=kwargs
             )
+            
+            # Build relations from SHOW TABLE EXTENDED results
             rels = self._build_spark_relation_list(
                 row_list=show_table_extended_rows,
                 relation_info_func=self._get_relation_information,
             )
-            if "." in schema_relation.schema:
-                rels = [r.incorporate(path={"schema": schema_relation.schema}) for r in rels]
+            
+            logger.info(f"Listed {len(rels)} relations using SHOW TABLE EXTENDED (3-part)")
             return rels
-        except DbtRuntimeError as e:
-            errmsg = getattr(e, "msg", "").lower()
-            if f"database '{schema_relation}' not found" in errmsg:
-                return []
-            # Iceberg compute engine behavior: show table
-            if (
-                "show table extended is not supported for v2 tables" in errmsg
-                or 'invalid value from "show tables extended' in errmsg
-                or "failed to list all tables under namespace" in errmsg
-                or ("show table extended" in errmsg and "not supported" in errmsg)
-                ):
-                # this happens with spark-iceberg with v2 iceberg tables
-                # https://issues.apache.org/jira/browse/SPARK-33393
+            
+        except DbtRuntimeError as e_3part:
+            # 3-part name failed, try 2-part name if catalog prefix exists
+            if has_catalog:
+                logger.debug(f"SHOW TABLE EXTENDED (3-part) failed, trying 2-part name")
+                
                 try:
-                    # Iceberg behavior: 3-row result of relations obtained
-                    show_table_rows = self.execute_macro(
-                        LIST_RELATIONS_SHOW_TABLES_MACRO_NAME, kwargs=kwargs
+                    schema_relation_2part = schema_relation.incorporate(path={"schema": schema_to_try})
+                    kwargs_2part = {"schema_relation": schema_relation_2part}
+                    
+                    show_table_extended_rows = self.execute_macro(
+                        LIST_RELATIONS_MACRO_NAME, kwargs=kwargs_2part
                     )
+                    
+                    # Build relations from SHOW TABLE EXTENDED results
+                    rels = self._build_spark_relation_list(
+                        row_list=show_table_extended_rows,
+                        relation_info_func=self._get_relation_information,
+                    )
+                    
+                    # Restore full catalog.schema to relations
+                    rels = [r.incorporate(path={"schema": schema_relation.schema}) for r in rels]
+                    
+                    logger.info(f"Listed {len(rels)} relations using SHOW TABLE EXTENDED (2-part)")
+                    return rels
+                    
+                except DbtRuntimeError as e_2part:
+                    # Both 3-part and 2-part failed, continue to SHOW TABLES fallback
+                    logger.debug(f"SHOW TABLE EXTENDED (2-part) also failed, falling back to SHOW TABLES")
+                    e = e_2part
+            else:
+                # No catalog prefix, can't try 2-part
+                e = e_3part
+            
+        # SHOW TABLE EXTENDED failed (likely v2 tables), fallback to SHOW TABLES
+        logger.debug(f"SHOW TABLE EXTENDED failed, falling back to SHOW TABLES + per-table DESCRIBE")
+        
+        # Try 3-part name first, then fallback to 2-part
+        try:
+            # Try SHOW TABLES with 3-part name first
+            show_table_rows = self.execute_macro(
+                LIST_RELATIONS_SHOW_TABLES_MACRO_NAME, kwargs=kwargs
+            )
+            
+            # Use per-table DESCRIBE (tries DESCRIBE EXTENDED first, then DESCRIBE)
+            rels = self._build_spark_relation_list(
+                row_list=show_table_rows,
+                relation_info_func=self._get_relation_information_using_describe,
+            )
+            
+            logger.info(f"Listed {len(rels)} relations using SHOW TABLES (3-part) + per-table DESCRIBE")
+            return rels
+            
+        except DbtRuntimeError as e2_3part:
+            # 3-part SHOW TABLES failed, try 2-part if catalog prefix exists
+            if has_catalog:
+                logger.debug(f"SHOW TABLES (3-part) failed, trying 2-part name")
+                try:
+                    kwargs_2part_show = {"schema_relation": schema_relation.incorporate(path={"schema": schema_to_try})}
+                    show_table_rows = self.execute_macro(
+                        LIST_RELATIONS_SHOW_TABLES_MACRO_NAME, kwargs=kwargs_2part_show
+                    )
+                    
+                    # Use per-table DESCRIBE (tries DESCRIBE EXTENDED first, then DESCRIBE)
                     rels = self._build_spark_relation_list(
                         row_list=show_table_rows,
                         relation_info_func=self._get_relation_information_using_describe,
                     )
-                    if "." in schema_relation.schema:
-                        rels = [r.incorporate(path={"schema": schema_relation.schema}) for r in rels]
+                    # Restore full catalog.schema
+                    rels = [r.incorporate(path={"schema": schema_relation.schema}) for r in rels]
+                    
+                    logger.info(f"Listed {len(rels)} relations using SHOW TABLES (2-part) + per-table DESCRIBE")
                     return rels
-                except DbtRuntimeError as e:
+                    
+                except DbtRuntimeError as e2_2part:
+                    # Both 3-part and 2-part SHOW TABLES failed
+                    errmsg2 = getattr(e2_2part, "msg", "").lower()
+                    if f"database '{schema_relation}' not found" in errmsg2:
+                        logger.debug(f"Database not found, returning empty list")
+                        return []
+                    
                     description = "Error while retrieving information about"
-                    logger.debug(f"{description} {schema_relation}: {e.msg}")
-                    return []
+                    logger.debug(f"{description} {schema_relation}: {e2_2part.msg}")
+                    e2 = e2_2part
             else:
-                logger.debug(
-                    f"Error while retrieving information about {schema_relation}: {errmsg}"
-                )
-                return []
+                # No catalog prefix, can't try 2-part
+                errmsg2 = getattr(e2_3part, "msg", "").lower()
+                if f"database '{schema_relation}' not found" in errmsg2:
+                    logger.debug(f"Database not found, returning empty list")
+                    return []
+                
+                description = "Error while retrieving information about"
+                logger.debug(f"{description} {schema_relation}: {e2_3part.msg}")
+                e2 = e2_3part
+            
+            return []
 
     def get_relation(self, database: str, schema: str, identifier: str) -> Optional[BaseRelation]:
         if not self.Relation.get_default_include_policy().database:
@@ -477,9 +607,9 @@ class WatsonxSparkAdapter(SQLAdapter):
         return None
 
     def build_location(self, bucket: str, catalog: str, schema: str) -> str:
-        if "." in schema:
-            schema = schema.split(".")[1]
-        return f"'s3a://{bucket}/{catalog}/{schema}'"
+        # Extract schema name only (remove catalog prefix if present)
+        schema_only = CatalogUtils.get_schema_only(schema)
+        return f"'s3a://{bucket}/{catalog}/{schema_only}'"
 
     def check_regex(self, regex: Any, string: str) -> bool:
         if re.match(regex, string):
@@ -605,8 +735,10 @@ class WatsonxSparkAdapter(SQLAdapter):
     def to_agate_table(self, rows_list: List[Tuple[str, str, bool, str]]) -> agate.Table:
         fixed = []
         for db, name, is_temp, info in rows_list:
-            # drop catalog if present: "catalog.schema" -> "schema"
-            schema = db.split(".", 1)[-1]
+            # Extract schema name only (remove catalog prefix if present)
+            # Note: This is temporary - the full catalog.schema is restored later
+            # in list_relations_without_caching via incorporate()
+            schema = CatalogUtils.get_schema_only(db)
             fixed.append([schema, name, bool(is_temp), self.normalize_information(info)])
         return agate.Table(fixed, column_names=["database", "tableName", "isTemporary", "information"])
 

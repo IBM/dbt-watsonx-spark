@@ -164,9 +164,9 @@
         {{ create_temporary_view(relation, compiled_code) }}
       {%- else -%}
         {% if config.get('file_format', validator=validation.any[basestring]) in ['delta', 'iceberg'] %}
-          create or replace table {{ relation }}
+          create or replace table {{ relation.render() }}
         {% else %}
-          create table {{ relation }}
+          create table {{ relation.render() }}
         {% endif %}
         {%- set contract_config = config.get('contract') -%}
         {%- if contract_config.enforced -%}
@@ -323,6 +323,10 @@
 {% endmacro %}
 
 {% macro watsonx_spark__list_relations_without_caching(relation) %}
+  {%- set sql_query = "show table extended in " ~ relation.schema ~ " like '*'" -%}
+  {{ log("[MACRO] list_relations_without_caching SQL: " ~ sql_query, info=True) }}
+  {{ log("[MACRO] relation.schema = " ~ relation.schema, info=True) }}
+  {{ log("[MACRO] relation object = " ~ relation, info=True) }}
   {% call statement('list_relations_without_caching', fetch_result=True) -%}
       show table extended in {{ relation.schema }} like '*'
   {% endcall %}
@@ -334,6 +338,10 @@
   {#-- Spark with iceberg tables don't work with show table extended for #}
   {#-- V2 iceberg tables #}
   {#-- https://issues.apache.org/jira/browse/SPARK-33393 #}
+  {%- set sql_query = "show tables in " ~ schema_relation.schema ~ " like '*'" -%}
+  {{ log("[MACRO] list_relations_show_tables_without_caching SQL: " ~ sql_query, info=True) }}
+  {{ log("[MACRO] schema_relation.schema = " ~ schema_relation.schema, info=True) }}
+  {{ log("[MACRO] schema_relation object = " ~ schema_relation, info=True) }}
   {% call statement('list_relations_without_caching_show_tables', fetch_result=True) -%}
     show tables in {{ schema_relation.schema }} like '*'
   {% endcall %}
@@ -345,10 +353,23 @@
   {#-- Spark with iceberg tables don't work with show table extended for #}
   {#-- V2 iceberg tables #}
   {#-- https://issues.apache.org/jira/browse/SPARK-33393 #}
+  {#-- Table name is already quoted in Python (impl.py) to handle special characters #}
+  {#-- Try DESCRIBE EXTENDED first (works for non-v2, provides more metadata) #}
+  {#-- Python code will fallback to describe_table_without_caching if this fails #}
   {% call statement('describe_table_extended_without_caching', fetch_result=True) -%}
     describe extended {{ table_name }}
   {% endcall %}
   {% do return(load_result('describe_table_extended_without_caching').table) %}
+{% endmacro %}
+
+{% macro describe_table_without_caching(table_name) %}
+  {#-- Fallback for Iceberg v2 tables where DESCRIBE EXTENDED fails #}
+  {#-- DESCRIBE TABLE (without EXTENDED) works for v2 tables #}
+  {#-- Table name is already quoted in Python (impl.py) to handle special characters #}
+  {% call statement('describe_table_without_caching', fetch_result=True) -%}
+    describe table {{ table_name }}
+  {% endcall %}
+  {% do return(load_result('describe_table_without_caching').table) %}
 {% endmacro %}
 
 {% macro watsonx_spark__list_schemas(database) -%}
