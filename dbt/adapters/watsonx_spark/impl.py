@@ -190,7 +190,9 @@ class WatsonxSparkAdapter(SQLAdapter):
 
         return _schema, name, information
 
-    def _get_relation_information_using_describe(self, row: agate.Row) -> RelationInfo:
+    def _get_relation_information_using_describe(
+        self, row: agate.Row, schema_name: Optional[str] = None
+    ) -> RelationInfo:
         """Relation info fetched using SHOW TABLES and an auxiliary DESCRIBE statement"""
         try:
             _schema, name, _ = row
@@ -199,7 +201,8 @@ class WatsonxSparkAdapter(SQLAdapter):
                 f'Invalid value from "show tables ...", got {len(row)} values, expected 3'
             )
 
-        table_name = f"{_schema}.{name}"
+        describe_schema = schema_name or _schema
+        table_name = f"{describe_schema}.{name}" if describe_schema else name
         try:
             table_results = self.execute_macro(
                 DESCRIBE_TABLE_EXTENDED_MACRO_NAME, kwargs={"table_name": table_name}
@@ -282,7 +285,9 @@ class WatsonxSparkAdapter(SQLAdapter):
                     )
                     rels = self._build_spark_relation_list(
                         row_list=show_table_rows,
-                        relation_info_func=self._get_relation_information_using_describe,
+                        relation_info_func=lambda row: self._get_relation_information_using_describe(
+                            row, schema_name=schema_relation.schema
+                        ),
                     )
                     if "." in schema_relation.schema:
                         rels = [r.incorporate(path={"schema": schema_relation.schema}) for r in rels]

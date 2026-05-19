@@ -18,7 +18,7 @@
   {%- set target_relation = this -%}
   {%- set existing_relation = load_relation(this) -%}
   {% set tmp_relation = this.incorporate(path = {"identifier": this.identifier ~ '__dbt_tmp'}) -%}
-  {#-- for SQL model we will create temp view that doesn't have database and schema --#}
+  {#-- temp views must use a bare identifier in Spark --#}
   {%- if language == 'sql'-%}
     {%- set tmp_relation = tmp_relation.include(database=false, schema=false) -%}
   {%- endif -%}

@@ -133,6 +133,16 @@
   {% do return(load_result('list_properties').table) %}
 {%- endmacro %}
 
+{% macro watsonx_spark__render_relation_name(relation) -%}
+  {%- if relation is string -%}
+    {{ relation }}
+  {%- elif relation.include_policy.schema -%}
+    {{ relation.include(database=false, schema=true) }}
+  {%- else -%}
+    {{ relation.include(database=false, schema=false) }}
+  {%- endif -%}
+{%- endmacro -%}
+
 
 {% macro create_temporary_view(relation, compiled_code) -%}
   {{ return(adapter.dispatch('create_temporary_view', 'dbt')(relation, compiled_code)) }}
@@ -140,7 +150,7 @@
 
 {#-- We can't use temporary tables with `create ... as ()` syntax --#}
 {% macro watsonx_spark__create_temporary_view(relation, compiled_code) -%}
-    create or replace temporary view {{ relation }} as
+    create or replace temporary view {% if relation is string %}{{ relation }}{% else %}{{ relation.include(database=false, schema=false) }}{% endif %} as
       {{ compiled_code }}
 {%- endmacro -%}
 
@@ -260,7 +270,7 @@
 {% endmacro %}
 
 {% macro watsonx_spark__create_view_as(relation, sql) -%}
-  create or replace view {{ relation }}
+  create or replace view {{ watsonx_spark__render_relation_name(relation) }}
   {% if config.persist_column_docs() -%}
     {% set model_columns = model.columns %}
     {% set query_columns = get_columns_in_query(sql) %}
@@ -310,14 +320,14 @@
 
 {% macro watsonx_spark__get_columns_in_relation_raw(relation) -%}
   {% call statement('get_columns_in_relation_raw', fetch_result=True) %}
-      describe extended {{ relation }}
+      describe extended {{ watsonx_spark__render_relation_name(relation) }}
   {% endcall %}
   {% do return(load_result('get_columns_in_relation_raw').table) %}
 {% endmacro %}
 
 {% macro watsonx_spark__get_columns_in_relation(relation) -%}
   {% call statement('get_columns_in_relation', fetch_result=True) %}
-      describe extended {{ relation.include(schema=(schema is not none)) }}
+      describe extended {{ watsonx_spark__render_relation_name(relation) }}
   {% endcall %}
   {% do return(load_result('get_columns_in_relation').table) %}
 {% endmacro %}
@@ -417,7 +427,6 @@
         "identifier": tmp_identifier
     }) -%}
 
-    {%- set tmp_relation = tmp_relation.include(database=false, schema=false) -%}
     {% do return(tmp_relation) %}
 {% endmacro %}
 

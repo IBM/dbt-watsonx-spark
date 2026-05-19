@@ -2,6 +2,7 @@ import sys
 import types
 import unittest
 from multiprocessing import get_context
+from pathlib import Path
 from unittest import mock
 
 import dbt.flags as flags
@@ -545,6 +546,16 @@ class TestSparkAdapter(unittest.TestCase):
         with self.assertRaises(DbtRuntimeError):
             # not fine - database set
             adapter.Relation.create(database="something", schema="different", identifier="table")
+
+    def test_get_relation_information_using_describe_uses_schema_override(self):
+        impl_sql = Path("dbt/adapters/watsonx_spark/impl.py").read_text()
+
+        self.assertIn("schema_name: Optional[str] = None", impl_sql)
+        self.assertIn(
+            'table_name = f"{describe_schema}.{name}" if describe_schema else name',
+            impl_sql,
+        )
+        self.assertIn("schema_name=schema_relation.schema", impl_sql)
 
     def test_profile_with_database(self):
         profile = {
