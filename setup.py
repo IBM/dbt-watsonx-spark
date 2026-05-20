@@ -41,7 +41,7 @@ def _get_plugin_version_dict():
 
 
 package_name = "dbt-watsonx-spark"
-package_version = "0.1.5"
+package_version = "0.1.5b1"
 description = """IBM watsonx.data spark plugin for dbt"""
 
 setup(

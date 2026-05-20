@@ -37,8 +37,12 @@ class TestSparkMacros(unittest.TestCase):
 
         self.default_context["adapter"].dispatch = dispatch
 
+        # Create a mock relation object with render() method
+        relation_mock = mock.Mock()
+        relation_mock.render.return_value = relation
+
         value = getattr(template.module, name)(
-            temporary, relation, sql, self.default_context["config"]
+            temporary, relation_mock, sql, self.default_context["config"]
         )
         return re.sub(r"\s\s+", " ", value)
 

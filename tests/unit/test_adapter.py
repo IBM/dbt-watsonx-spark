@@ -8,7 +8,7 @@ import dbt.flags as flags
 from dbt.exceptions import DbtRuntimeError
 from agate import Row
 from pyhive import hive
-from dbt.adapters.watsonx_spark import SparkAdapter, SparkRelation
+from dbt.adapters.watsonx_spark import WatsonxSparkAdapter, SparkRelation
 from .utils import config_from_parts_or_dicts
 
 
@@ -21,7 +21,7 @@ class _FakeAuthenticator:
         return ("", "parquet")
 
 
-class TestSparkAdapter(unittest.TestCase):
+class TestWatsonxSparkAdapter(unittest.TestCase):
     def setUp(self):
         flags.STRICT_MODE = False
 
@@ -190,7 +190,7 @@ class TestSparkAdapter(unittest.TestCase):
 
     def test_http_connection(self):
         config = self._get_target_http(self.project_cfg)
-        adapter = SparkAdapter(config, get_context("spawn"))
+        adapter = WatsonxSparkAdapter(config, get_context("spawn"))
 
         def hive_http_connect(thrift_transport, database=None, configuration=None):
             self.assertEqual(thrift_transport.scheme, "https")
@@ -215,10 +215,10 @@ class TestSparkAdapter(unittest.TestCase):
 
     def test_thrift_connection(self):
         config = self._get_target_thrift(self.project_cfg)
-        adapter = SparkAdapter(config, get_context("spawn"))
+        adapter = WatsonxSparkAdapter(config, get_context("spawn"))
 
         def hive_thrift_connect(
-            host, port, username, auth, kerberos_service_name, password, configuration
+            host, port, username, auth, kerberos_service_name, password, configuration, database=None
         ):
             self.assertEqual(host, "myorg.sparkhost.com")
             self.assertEqual(port, 10001)
@@ -227,6 +227,7 @@ class TestSparkAdapter(unittest.TestCase):
             self.assertIsNone(kerberos_service_name)
             self.assertIsNone(password)
             self.assertDictEqual(configuration, {})
+            self.assertEqual(database, "spark_catalog")
 
         with mock.patch.object(hive, "connect", new=hive_thrift_connect):
             connection = adapter.acquire_connection("dummy")
@@ -239,14 +240,15 @@ class TestSparkAdapter(unittest.TestCase):
 
     def test_thrift_ssl_connection(self):
         config = self._get_target_use_ssl_thrift(self.project_cfg)
-        adapter = SparkAdapter(config, get_context("spawn"))
+        adapter = WatsonxSparkAdapter(config, get_context("spawn"))
 
-        def hive_thrift_connect(thrift_transport, configuration):
+        def hive_thrift_connect(thrift_transport, configuration, database=None):
             self.assertIsNotNone(thrift_transport)
             transport = thrift_transport._trans
             self.assertEqual(transport.host, "myorg.sparkhost.com")
             self.assertEqual(transport.port, 10001)
             self.assertDictEqual(configuration, {})
+            self.assertEqual(database, "spark_catalog")
 
         fake_transport = lambda host, port, username, auth, kerberos_service_name, password=None: types.SimpleNamespace(
             _trans=types.SimpleNamespace(host=host, port=port)
@@ -265,10 +267,10 @@ class TestSparkAdapter(unittest.TestCase):
 
     def test_thrift_connection_kerberos(self):
         config = self._get_target_thrift_kerberos(self.project_cfg)
-        adapter = SparkAdapter(config, get_context("spawn"))
+        adapter = WatsonxSparkAdapter(config, get_context("spawn"))
 
         def hive_thrift_connect(
-            host, port, username, auth, kerberos_service_name, password, configuration
+            host, port, username, auth, kerberos_service_name, password, configuration, database=None
         ):
             self.assertEqual(host, "myorg.sparkhost.com")
             self.assertEqual(port, 10001)
@@ -277,6 +279,7 @@ class TestSparkAdapter(unittest.TestCase):
             self.assertEqual(kerberos_service_name, "hive")
             self.assertIsNone(password)
             self.assertDictEqual(configuration, {})
+            self.assertEqual(database, "spark_catalog")
 
         with mock.patch.object(hive, "connect", new=hive_thrift_connect):
             connection = adapter.acquire_connection("dummy")
@@ -289,7 +292,7 @@ class TestSparkAdapter(unittest.TestCase):
 
     def test_odbc_cluster_connection(self):
         config = self._get_target_odbc_cluster(self.project_cfg)
-        adapter = SparkAdapter(config, get_context("spawn"))
+        adapter = WatsonxSparkAdapter(config, get_context("spawn"))
 
         def pyodbc_connect(connection_str, autocommit):
             self.assertTrue(autocommit)
@@ -316,7 +319,7 @@ class TestSparkAdapter(unittest.TestCase):
 
     def test_odbc_endpoint_connection(self):
         config = self._get_target_odbc_sql_endpoint(self.project_cfg)
-        adapter = SparkAdapter(config, get_context("spawn"))
+        adapter = WatsonxSparkAdapter(config, get_context("spawn"))
 
         def pyodbc_connect(connection_str, autocommit):
             self.assertTrue(autocommit)
@@ -379,7 +382,7 @@ class TestSparkAdapter(unittest.TestCase):
         input_cols = [Row(keys=["col_name", "data_type"], values=r) for r in plain_rows]
 
         config = self._get_target_http(self.project_cfg)
-        rows = SparkAdapter(config, get_context("spawn")).parse_describe_extended(
+        rows = WatsonxSparkAdapter(config, get_context("spawn")).parse_describe_extended(
             relation, input_cols
         )
         self.assertEqual(len(rows), 4)
@@ -470,7 +473,7 @@ class TestSparkAdapter(unittest.TestCase):
         input_cols = [Row(keys=["col_name", "data_type"], values=r) for r in plain_rows]
 
         config = self._get_target_http(self.project_cfg)
-        rows = SparkAdapter(config, get_context("spawn")).parse_describe_extended(
+        rows = WatsonxSparkAdapter(config, get_context("spawn")).parse_describe_extended(
             relation, input_cols
         )
 
@@ -508,7 +511,7 @@ class TestSparkAdapter(unittest.TestCase):
         input_cols = [Row(keys=["col_name", "data_type"], values=r) for r in plain_rows]
 
         config = self._get_target_http(self.project_cfg)
-        rows = SparkAdapter(config, get_context("spawn")).parse_describe_extended(
+        rows = WatsonxSparkAdapter(config, get_context("spawn")).parse_describe_extended(
             relation, input_cols
         )
         self.assertEqual(len(rows), 1)
@@ -539,7 +542,7 @@ class TestSparkAdapter(unittest.TestCase):
 
     def test_relation_with_database(self):
         config = self._get_target_http(self.project_cfg)
-        adapter = SparkAdapter(config, get_context("spawn"))
+        adapter = WatsonxSparkAdapter(config, get_context("spawn"))
         # fine
         adapter.Relation.create(schema="different", identifier="table")
         with self.assertRaises(DbtRuntimeError):
@@ -621,7 +624,7 @@ class TestSparkAdapter(unittest.TestCase):
         )
 
         config = self._get_target_http(self.project_cfg)
-        columns = SparkAdapter(config, get_context("spawn")).parse_columns_from_information(
+        columns = WatsonxSparkAdapter(config, get_context("spawn")).parse_columns_from_information(
             relation
         )
         self.assertEqual(len(columns), 4)
@@ -708,7 +711,7 @@ class TestSparkAdapter(unittest.TestCase):
         )
 
         config = self._get_target_http(self.project_cfg)
-        columns = SparkAdapter(config, get_context("spawn")).parse_columns_from_information(
+        columns = WatsonxSparkAdapter(config, get_context("spawn")).parse_columns_from_information(
             relation
         )
         self.assertEqual(len(columns), 4)
@@ -776,7 +779,7 @@ class TestSparkAdapter(unittest.TestCase):
         )
 
         config = self._get_target_http(self.project_cfg)
-        columns = SparkAdapter(config, get_context("spawn")).parse_columns_from_information(
+        columns = WatsonxSparkAdapter(config, get_context("spawn")).parse_columns_from_information(
             relation
         )
         self.assertEqual(len(columns), 4)

@@ -186,7 +186,7 @@ class SparkCredentials(Credentials):
             else:
                 self.auth = {"type": str(self.auth)}
 
-        authenticator = get_authenticator(self.auth, self.host, self.uri)
+        authenticator = get_authenticator(self.auth, self.host, self.uri, self.suppress_ssl_warnings)
 
         if not self.token:
             self.token = authenticator.get_token()
@@ -504,7 +504,7 @@ class SparkConnectionManager(SQLConnectionManager):
         if credentials.catalog is not None:
             try:
                 authenticator = get_authenticator(
-                    credentials.auth, credentials.host, credentials.uri
+                    credentials.auth, credentials.host, credentials.uri, credentials.suppress_ssl_warnings
                 )
                 bucket, file_format = authenticator.get_catlog_details(credentials.catalog)
                 return bucket, file_format

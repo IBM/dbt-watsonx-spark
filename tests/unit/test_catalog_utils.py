@@ -206,9 +206,9 @@ class TestIntegrationScenarios:
         # Check if has catalog
         assert CatalogUtils.has_catalog_prefix(schema) is True
         
-        # Build qualified name
+        # Build qualified name - should produce three-part name
         qualified = CatalogUtils.build_qualified_name(schema, table, quote=True)
-        assert qualified == "`iceberg_data.uk0429`.`test-special-chars`"
+        assert qualified == "`iceberg_data`.`uk0429`.`test-special-chars`"
         
         # Extract components
         catalog, schema_only = CatalogUtils.split_catalog_schema(schema)
@@ -227,10 +227,10 @@ class TestIntegrationScenarios:
         normalized = CatalogUtils.normalize_schema_from_show_tables(returned_schema, context_schema)
         assert normalized == "iceberg_data.uk0429"
         
-        # Build table name with restored catalog
+        # Build table name with restored catalog - should produce three-part name
         table = "my_table"
         qualified = CatalogUtils.quote_schema_table(normalized, table)
-        assert qualified == "`iceberg_data.uk0429`.`my_table`"
+        assert qualified == "`iceberg_data`.`uk0429`.`my_table`"
 
     def test_s3_location_workflow(self):
         """Test workflow for building S3 location."""
@@ -257,8 +257,8 @@ class TestIntegrationScenarios:
         catalog = CatalogUtils.get_catalog_only(schema)
         assert catalog == "spark_catalog"
         
-        # Build qualified name
+        # Build qualified name - should produce three-part name
         qualified = CatalogUtils.build_qualified_name(schema, table, quote=True)
-        assert qualified == "`spark_catalog.default`.`my_table`"
+        assert qualified == "`spark_catalog`.`default`.`my_table`"
 
 # Made with Bob

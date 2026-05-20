@@ -1,3 +1,4 @@
+from dbt.adapters.watsonx_spark.relation import SparkRelation
 import os
 import re
 from concurrent.futures import Future
@@ -257,7 +258,7 @@ class WatsonxSparkAdapter(SQLAdapter):
             if not info_type.startswith("#"):
                 information += f"{info_type}: {info_value}\n"
 
-        return _schema, name, information
+        return full_schema, name, information
 
     def _build_spark_relation_list(
         self,
@@ -308,27 +309,39 @@ class WatsonxSparkAdapter(SQLAdapter):
         # Store schema context for fallback fix in _get_relation_information_using_describe
         self._list_relations_schema_context = schema_relation.schema
         
-        # Check if schema has catalog prefix
-        has_catalog = CatalogUtils.has_catalog_prefix(schema_relation.schema)
+        # Check if schema has catalog prefix (contains a dot)
+        # This happens for Iceberg, Delta, Hudi where connections.py adds catalog prefix
+        has_catalog = '.' in schema_relation.schema
         schema_to_try = schema_relation.schema
         
         if has_catalog:
             # Extract 2-part name (schema only) for fallback
-            schema_to_try = CatalogUtils.get_schema_only(schema_relation.schema)
+            schema_to_try = schema_relation.schema.split('.')[-1] if '.' in schema_relation.schema else schema_relation.schema
         
         try:
-            # Try SHOW TABLE EXTENDED with 3-part name first (preferred for v2 tables)
+            # Try SHOW TABLE EXTENDED with 3-part name first
+            # Note: The macro will use SHOW TABLES directly if catalog is configured (Iceberg)
             show_table_extended_rows = self.execute_macro(
                 LIST_RELATIONS_MACRO_NAME, kwargs=kwargs
             )
             
-            # Build relations from SHOW TABLE EXTENDED results
-            rels = self._build_spark_relation_list(
-                row_list=show_table_extended_rows,
-                relation_info_func=self._get_relation_information,
-            )
+            # For Iceberg catalogs, the macro uses SHOW TABLES (3 columns)
+            # For traditional Hive, it uses SHOW TABLE EXTENDED (4 columns)
+            if has_catalog:
+                # Iceberg: SHOW TABLES format, use describe-based relation info
+                rels = self._build_spark_relation_list(
+                    row_list=show_table_extended_rows,
+                    relation_info_func=self._get_relation_information_using_describe,
+                )
+                logger.info(f"Listed {len(rels)} relations using SHOW TABLES (catalog)")
+            else:
+                # Traditional Hive: SHOW TABLE EXTENDED format
+                rels = self._build_spark_relation_list(
+                    row_list=show_table_extended_rows,
+                    relation_info_func=self._get_relation_information,
+                )
+                logger.info(f"Listed {len(rels)} relations using SHOW TABLE EXTENDED")
             
-            logger.info(f"Listed {len(rels)} relations using SHOW TABLE EXTENDED (3-part)")
             return rels
             
         except DbtRuntimeError as e_3part:
