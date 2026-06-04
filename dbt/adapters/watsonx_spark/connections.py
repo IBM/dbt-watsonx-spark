@@ -748,43 +748,64 @@ class SparkConnectionManager(SQLConnectionManager):
                 exc = e
                 # The user almost certainly has invalid credentials.
                 # Perhaps a token expired, or something
-                msg = "Failed to connect to Spark Query Server - connection closed unexpectedly (EOFError)"
                 
                 # Try to get query server status details if available
                 query_server_status = cls._get_query_server_status(creds)
+                
+                # Build detailed message for logging
+                detailed_msg = "Failed to connect to Spark Query Server - connection closed unexpectedly (EOFError)"
+                
                 if query_server_status:
                     state = query_server_status.get("state")
                     state_details = query_server_status.get("state_details", [])
                     
                     if state:
-                        msg += f"\n\n  ⚠️  Query Server State: {state}"
+                        detailed_msg += f"\n\n  ⚠️  Query Server State: {state}"
                     
                     if state_details:
-                        msg += "\n  ⚠️  Query Server Details:"
+                        detailed_msg += "\n  ⚠️  Query Server Details:"
                         for detail in state_details:
                             detail_type = detail.get("type", "unknown")
                             detail_code = detail.get("code", "unknown")
                             detail_message = detail.get("message", "No message")
-                            msg += f"\n    - Type: {detail_type}, Code: {detail_code}"
-                            msg += f"\n      Message: {detail_message}"
-                        msg += "\n"
+                            detailed_msg += f"\n    - Type: {detail_type}, Code: {detail_code}"
+                            detailed_msg += f"\n      Message: {detail_message}"
+                        detailed_msg += "\n"
                 
                 # Provide specific guidance based on configuration
                 if creds.token is not None:
-                    msg += "\n  Possible causes:\n"
-                    msg += "  - Token may be invalid or expired\n"
-                    msg += "  - Query server may not be running or accessible\n"
-                    msg += "  - Network connectivity issues\n"
-                    msg += "  Please verify: token validity, server status, and network connectivity"
+                    detailed_msg += "\n  Possible causes:\n"
+                    detailed_msg += "  - Token may be invalid or expired\n"
+                    detailed_msg += "  - Query server may not be running or accessible\n"
+                    detailed_msg += "  - Network connectivity issues\n"
+                    detailed_msg += "  Please verify: token validity, server status, and network connectivity"
                 else:
-                    msg += "\n  Possible causes:\n"
-                    msg += "  - Query server may not be running or accessible\n"
-                    msg += "  - Network connectivity issues\n"
-                    msg += "  - Authentication configuration may be incorrect\n"
-                    msg += "  Please verify: server status, network connectivity, and authentication settings"
+                    detailed_msg += "\n  Possible causes:\n"
+                    detailed_msg += "  - Query server may not be running or accessible\n"
+                    detailed_msg += "  - Network connectivity issues\n"
+                    detailed_msg += "  - Authentication configuration may be incorrect\n"
+                    detailed_msg += "  Please verify: server status, network connectivity, and authentication settings"
                 
-                logger.error(msg)
-                raise FailedToConnectError(msg) from e
+                # Log the detailed message once
+                logger.error(detailed_msg)
+                
+                # Raise a simpler error message to avoid repetition in wrapped exceptions
+                simple_msg = "Failed to connect to Spark Query Server"
+                if query_server_status:
+                    state = query_server_status.get("state")
+                    state_details = query_server_status.get("state_details", [])
+                    
+                    if state:
+                        simple_msg += f" (State: {state}"
+                        # Add first error code if available
+                        if state_details and len(state_details) > 0:
+                            first_detail = state_details[0]
+                            error_code = first_detail.get("code")
+                            if error_code:
+                                simple_msg += f", Error: {error_code}"
+                        simple_msg += ")"
+                
+                raise FailedToConnectError(simple_msg) from e
             except Exception as e:
                 exc = e
                 retryable_message = _is_retryable_error(e)
