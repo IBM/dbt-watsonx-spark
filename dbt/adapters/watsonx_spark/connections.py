@@ -521,6 +521,89 @@ class SparkConnectionManager(SQLConnectionManager):
         return None
 
     @classmethod
+    def _get_query_server_status(cls, credentials: SparkCredentials) -> Optional[Dict[str, Any]]:
+        """
+        Fetch query server status from the watsonx.data API.
+        Returns a dict with 'state' and 'state_details' if available, None otherwise.
+        """
+        try:
+            import requests
+            import re
+            
+            # Extract query server ID from URI if present
+            # URI format: /lakehouse/api/v3/spark_engines/{engine_id}/query_servers/{query_server_id}/connect/cliservice
+            if not credentials.uri:
+                logger.debug("No URI provided in credentials")
+                return None
+            
+            # Get instance_id from auth
+            instance_id = None
+            if credentials.auth and isinstance(credentials.auth, dict):
+                instance_id = credentials.auth.get('instance')
+            
+            if not instance_id:
+                logger.debug("No instance ID found in credentials.auth")
+                return None
+            
+            # Parse the URI to extract components (without instance_id in URI)
+            uri_pattern = r'/lakehouse/api/(v[\d.]+)/spark_engines/([^/]+)/query_servers/([^/]+)'
+            match = re.search(uri_pattern, credentials.uri)
+            
+            if not match:
+                logger.debug(f"Could not parse query server details from URI: {credentials.uri}")
+                return None
+            
+            lakehouse_version, engine_id, query_server_id = match.groups()
+            
+            # Construct the API URL
+            api_url = f"{credentials.host}/lakehouse/api/{lakehouse_version}/{instance_id}/spark_engines/{engine_id}/query_servers/{query_server_id}/"
+            
+            logger.debug(f"Fetching query server status from: {api_url}")
+            
+            # Prepare headers
+            headers = {
+                'Accept': 'application/json',
+                'LhInstanceId': instance_id,
+            }
+            
+            # Add authentication token if available
+            if credentials.token:
+                headers['Authorization'] = f'Bearer {credentials.token}'
+            
+            # Make the API request
+            response = requests.get(
+                api_url,
+                headers=headers,
+                verify=not credentials.suppress_ssl_warnings,
+                timeout=10
+            )
+            
+            logger.debug(f"Query server status API response: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                result = {}
+                
+                # Extract state if present
+                if 'state' in data:
+                    result['state'] = data['state']
+                
+                # Extract state_details if present
+                if 'state_details' in data:
+                    result['state_details'] = data['state_details']
+                
+                logger.debug(f"Query server status: {result}")
+                return result if result else None
+            else:
+                logger.debug(f"Failed to fetch query server status: HTTP {response.status_code}, Response: {response.text}")
+                return None
+                
+        except Exception as e:
+            # Don't fail the connection attempt if we can't get status
+            logger.debug(f"Could not retrieve query server status: {str(e)}")
+            return None
+
+    @classmethod
     def validate_creds(cls, creds: Any, required: Iterable[str]) -> None:
         method = creds.method
 
@@ -707,26 +790,66 @@ class SparkConnectionManager(SQLConnectionManager):
                 raise FailedToConnectError(msg) from e
             except EOFError as e:
                 exc = e
-                # EOFError typically indicates connection was closed unexpectedly
-                # This could be due to network issues, server problems, or authentication
-                msg = "Failed to connect to Spark Query Server - connection closed unexpectedly (EOFError)"
+                # The user almost certainly has invalid credentials.
+                # Perhaps a token expired, or something
+                
+                # Try to get query server status details if available
+                query_server_status = cls._get_query_server_status(creds)
+                
+                # Build detailed message for logging
+                detailed_msg = "Failed to connect to Spark Query Server - connection closed unexpectedly (EOFError)"
+                
+                if query_server_status:
+                    state = query_server_status.get("state")
+                    state_details = query_server_status.get("state_details", [])
+                    
+                    if state:
+                        detailed_msg += f"\n\n  ⚠️  Query Server State: {state}"
+                    
+                    if state_details:
+                        detailed_msg += "\n  ⚠️  Query Server Details:"
+                        for detail in state_details:
+                            detail_type = detail.get("type", "unknown")
+                            detail_code = detail.get("code", "unknown")
+                            detail_message = detail.get("message", "No message")
+                            detailed_msg += f"\n    - Type: {detail_type}, Code: {detail_code}"
+                            detailed_msg += f"\n      Message: {detail_message}"
+                        detailed_msg += "\n"
                 
                 # Provide specific guidance based on configuration
                 if creds.token is not None:
-                    msg += "\n  Possible causes:\n"
-                    msg += "  - Token may be invalid or expired\n"
-                    msg += "  - Query server may not be running or accessible\n"
-                    msg += "  - Network connectivity issues\n"
-                    msg += "  Please verify: token validity, server status, and network connectivity"
+                    detailed_msg += "\n  Possible causes:\n"
+                    detailed_msg += "  - Token may be invalid or expired\n"
+                    detailed_msg += "  - Query server may not be running or accessible\n"
+                    detailed_msg += "  - Network connectivity issues\n"
+                    detailed_msg += "  Please verify: token validity, server status, and network connectivity"
                 else:
-                    msg += "\n  Possible causes:\n"
-                    msg += "  - Query server may not be running or accessible\n"
-                    msg += "  - Network connectivity issues\n"
-                    msg += "  - Authentication configuration may be incorrect\n"
-                    msg += "  Please verify: server status, network connectivity, and authentication settings"
+                    detailed_msg += "\n  Possible causes:\n"
+                    detailed_msg += "  - Query server may not be running or accessible\n"
+                    detailed_msg += "  - Network connectivity issues\n"
+                    detailed_msg += "  - Authentication configuration may be incorrect\n"
+                    detailed_msg += "  Please verify: server status, network connectivity, and authentication settings"
                 
-                logger.error(msg)
-                raise FailedToConnectError(msg) from e
+                # Log the detailed message once
+                logger.error(detailed_msg)
+                
+                # Raise a simpler error message to avoid repetition in wrapped exceptions
+                simple_msg = "Failed to connect to Spark Query Server"
+                if query_server_status:
+                    state = query_server_status.get("state")
+                    state_details = query_server_status.get("state_details", [])
+                    
+                    if state:
+                        simple_msg += f" (State: {state}"
+                        # Add first error code if available
+                        if state_details and len(state_details) > 0:
+                            first_detail = state_details[0]
+                            error_code = first_detail.get("code")
+                            if error_code:
+                                simple_msg += f", Error: {error_code}"
+                        simple_msg += ")"
+                
+                raise FailedToConnectError(simple_msg) from e
             except Exception as e:
                 exc = e
                 retryable_message = _is_retryable_error(e)
