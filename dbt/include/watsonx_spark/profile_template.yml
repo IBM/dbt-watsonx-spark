@@ -8,6 +8,11 @@ fixed:
   # create_schemas: true         # Optional: Set to false to disable automatic schema creation (default: true)
   # auto_location: false         # Optional: Set to true to enable automatic LOCATION clause in CREATE TABLE (default: false)
   # suppress_ssl_warnings: true  # Optional: Set to false to show SSL warnings when verify=False (default: true)
+  
+  # Query execution parameters (NEW - addresses intermittent connection failures)
+  # poll_interval: 5             # Optional: Seconds to wait between query status polls (default: 5)
+  # query_retries: 1             # Optional: Number of retries on connection loss during query execution (default: 1)
+  # query_timeout: null          # Optional: Maximum seconds for query execution, null = no timeout (default: null)
 prompts:
   host:
     hint: us-south.lakehouse.cloud.ibm.com
