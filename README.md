@@ -159,3 +159,16 @@ When `auto_location` is set to `false`, dbt will not add a LOCATION clause to CR
 - You need to comply with strict data governance policies
 
 
+
+
+## Contributing
+
+We welcome contributions! Please see:
+
+- **[Contributing Guidelines](CONTRIBUTING.md)** - How to contribute to the project
+- **[Code of Conduct](CODE_OF_CONDUCT.md)** - Community guidelines
+- **[Changelog](CHANGELOG.md)** - Version history and changes
+
+## Support
+
+For issues, questions, or support, please open an issue on the [GitHub repository](https://github.com/IBM/dbt-watsonx-spark).

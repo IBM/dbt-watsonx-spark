@@ -14,8 +14,8 @@ Self = TypeVar("Self", bound="BaseRelation")
 @dataclass
 class SparkQuotePolicy(Policy):
     database: bool = False
-    schema: bool = False
-    identifier: bool = False
+    schema: bool = False  # Don't quote schema (it may contain dots for database.schema)
+    identifier: bool = True  # Quote identifiers by default to handle special characters
 
 
 @dataclass
