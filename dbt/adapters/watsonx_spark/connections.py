@@ -50,10 +50,31 @@ except ImportError:
 
 import base64
 import time
+import http.client
 
 logger = AdapterLogger("Spark")
 
 NUMBERS = DECIMALS + (int, float)
+
+# Exception types that indicate a lost connection during query polling
+# Built once at module load time to avoid reconstructing on every poll
+CONNECTION_LOST_EXCEPTIONS: Tuple[type, ...]
+try:
+    from thrift.transport.TTransport import TTransportException
+    CONNECTION_LOST_EXCEPTIONS = (
+        ConnectionResetError,
+        BrokenPipeError,
+        EOFError,
+        http.client.RemoteDisconnected,
+        TTransportException,
+    )
+except ImportError:
+    CONNECTION_LOST_EXCEPTIONS = (
+        ConnectionResetError,
+        BrokenPipeError,
+        EOFError,
+        http.client.RemoteDisconnected,
+    )
 
 
 def _build_odbc_connnection_string(**kwargs: Any) -> str:
@@ -95,6 +116,10 @@ class SparkCredentials(Credentials):
     auto_location: bool = False
     suppress_ssl_warnings: bool = True
     connection_catalog: Optional[str] = "default"
+    # Query execution parameters
+    query_timeout: Optional[int] = None  # Timeout in seconds for long-running queries (None = no timeout)
+    poll_interval: int = 5  # Polling interval in seconds for async queries
+    query_retries: int = 1  # Number of times to retry on connection loss during query execution
 
     @classmethod
     def __pre_deserialize__(cls, data: Any) -> Any:
@@ -259,9 +284,18 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
     handle: "pyodbc.Connection"
     _cursor: "Optional[pyodbc.Cursor]"
 
-    def __init__(self, handle: "pyodbc.Connection") -> None:
+    def __init__(
+        self,
+        handle: "pyodbc.Connection",
+        poll_interval: int = 5,
+        query_timeout: Optional[int] = None,
+        query_retries: int = 1,
+    ) -> None:
         self.handle = handle
         self._cursor = None
+        self.poll_interval = poll_interval
+        self.query_timeout = query_timeout
+        self.query_retries = query_retries
 
     def cursor(self) -> "PyhiveConnectionWrapper":
         self._cursor = self.handle.cursor()
@@ -284,7 +318,35 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
                 self._cursor.close()
             except EnvironmentError as exc:
                 logger.debug("Exception while closing cursor: {}".format(exc))
-        self.handle.close()
+        
+        # Handle RemoteDisconnected during session close - this can happen when
+        # the server has already closed the HTTP connection (e.g., due to timeout)
+        # after a long-running query completes. The session is already gone on the
+        # server side, so it's safe to ignore this exception.
+        try:
+            self.handle.close()
+        except Exception as exc:
+            # Catch RemoteDisconnected and other connection-related exceptions
+            exc_name = type(exc).__name__
+            exc_str = str(exc).lower()
+            
+            # Check if this is a known connection-related exception
+            is_connection_error = (
+                exc_name == "RemoteDisconnected" or
+                "closed connection" in exc_str or
+                "connection closed" in exc_str or
+                "closed by peer" in exc_str or
+                "broken pipe" in exc_str or
+                "connection reset" in exc_str
+            )
+            
+            if is_connection_error:
+                logger.debug(
+                    "Connection already closed by remote server during session cleanup: {}".format(exc)
+                )
+            else:
+                # Re-raise unexpected exceptions
+                raise
 
     def rollback(self, *args: Any, **kwargs: Any) -> None:
         logger.debug("NotImplemented: rollback")
@@ -294,6 +356,38 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
         return self._cursor.fetchall()
 
     def execute(self, sql: str, bindings: Optional[List[Any]] = None) -> None:
+        """Execute SQL with retries on connection loss during polling."""
+        for attempt in range(self.query_retries + 1):
+            try:
+                self._execute_with_polling(sql, bindings)
+                return  # Success - exit retry loop
+            except Exception as e:
+                if isinstance(e, CONNECTION_LOST_EXCEPTIONS):
+                    # Connection was lost during polling
+                    if attempt < self.query_retries:
+                        logger.info(
+                            f"Connection lost during query execution (attempt {attempt + 1}/{self.query_retries + 1}). "
+                            f"Retrying in {self.poll_interval} seconds... "
+                            f"Error: {type(e).__name__}: {str(e)}"
+                        )
+                        time.sleep(self.poll_interval)
+                        # Need to get a fresh cursor on retry
+                        self._cursor = self.handle.cursor()
+                        continue
+                    else:
+                        # All retries exhausted
+                        raise DbtRuntimeError(
+                            f"Query failed after {self.query_retries + 1} attempts due to connection loss. "
+                            "The query may still be executing on the server. "
+                            f"Original error: {type(e).__name__}: {str(e)}. "
+                            f"Consider increasing 'query_retries' in your profile."
+                        ) from e
+                else:
+                    # Not a connection exception - re-raise immediately
+                    raise
+
+    def _execute_with_polling(self, sql: str, bindings: Optional[List[Any]]) -> None:
+        """Internal method that executes SQL and polls for completion."""
         if sql.strip().endswith(";"):
             sql = sql.strip()[:-1]
 
@@ -321,9 +415,21 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
         poll_state = self._cursor.poll()
         state = poll_state.operationState
 
+        start_time = time.time()
         while state in STATE_PENDING:
-            logger.debug("Poll status: {}, sleeping".format(state))
+            # Check for timeout if configured
+            if self.query_timeout is not None:
+                elapsed = time.time() - start_time
+                if elapsed > self.query_timeout:
+                    raise DbtRuntimeError(
+                        f"Query exceeded timeout of {self.query_timeout} seconds"
+                    )
 
+            logger.debug("Poll status: {}, sleeping".format(state))
+            time.sleep(self.poll_interval)  # CRITICAL FIX: Add sleep between polls
+
+            # Poll and let connection exceptions bubble up
+            # They will be caught and retried at the execute() method level
             poll_state = self._cursor.poll()
             state = poll_state.operationState
 
@@ -632,7 +738,12 @@ class SparkConnectionManager(SQLConnectionManager):
 
                     )
                     
-                    handle = PyhiveConnectionWrapper(conn)
+                    handle = PyhiveConnectionWrapper(
+                        conn,
+                        poll_interval=creds.poll_interval,
+                        query_timeout=creds.query_timeout,
+                        query_retries=creds.query_retries,
+                    )
                 elif creds.method == SparkConnectionMethod.THRIFT:
                     cls.validate_creds(creds, ["host", "port", "user", "schema"])
 
@@ -662,7 +773,12 @@ class SparkConnectionManager(SQLConnectionManager):
                             configuration=creds.server_side_parameters,
                             database=connection_catalog,
                         )  # noqa
-                    handle = PyhiveConnectionWrapper(conn)
+                    handle = PyhiveConnectionWrapper(
+                        conn,
+                        poll_interval=creds.poll_interval,
+                        query_timeout=creds.query_timeout,
+                        query_retries=creds.query_retries,
+                    )
                 elif creds.method == SparkConnectionMethod.ODBC:
                     if creds.cluster is not None:
                         required_fields = [
