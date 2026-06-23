@@ -357,25 +357,56 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
 
     def execute(self, sql: str, bindings: Optional[List[Any]] = None) -> None:
         """Execute SQL with retries on connection loss during polling."""
+        last_error = None
+        
         for attempt in range(self.query_retries + 1):
             try:
+                if attempt > 0:
+                    logger.info(f"Retry attempt {attempt}/{self.query_retries} for query")
+                
                 self._execute_with_polling(sql, bindings)
+                
+                if attempt > 0:
+                    logger.info(f"Query succeeded on retry attempt {attempt}")
+                
                 return  # Success - exit retry loop
+                
             except Exception as e:
-                if isinstance(e, CONNECTION_LOST_EXCEPTIONS):
+                last_error = e
+                
+                # Check if this is a connection error using our helper method
+                is_conn_error = (
+                    isinstance(e, CONNECTION_LOST_EXCEPTIONS) or
+                    self._is_connection_error(e)
+                )
+                
+                if is_conn_error:
                     # Connection was lost during polling
                     if attempt < self.query_retries:
-                        logger.info(
+                        logger.warning(
                             f"Connection lost during query execution (attempt {attempt + 1}/{self.query_retries + 1}). "
                             f"Retrying in {self.poll_interval} seconds... "
                             f"Error: {type(e).__name__}: {str(e)}"
                         )
                         time.sleep(self.poll_interval)
+                        
                         # Need to get a fresh cursor on retry
-                        self._cursor = self.handle.cursor()
+                        try:
+                            self._cursor = self.handle.cursor()
+                            logger.debug("Successfully refreshed cursor for retry")
+                        except Exception as cursor_error:
+                            logger.error(f"Failed to refresh cursor: {type(cursor_error).__name__}: {str(cursor_error)}")
+                            raise DbtRuntimeError(
+                                f"Failed to refresh cursor after connection loss: {type(cursor_error).__name__}: {str(cursor_error)}"
+                            ) from cursor_error
+                        
                         continue
                     else:
                         # All retries exhausted
+                        logger.error(
+                            f"Query failed after {self.query_retries + 1} attempts due to connection loss. "
+                            f"Final error: {type(e).__name__}: {str(e)}"
+                        )
                         raise DbtRuntimeError(
                             f"Query failed after {self.query_retries + 1} attempts due to connection loss. "
                             "The query may still be executing on the server. "
@@ -384,6 +415,7 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
                         ) from e
                 else:
                     # Not a connection exception - re-raise immediately
+                    logger.debug(f"Non-connection error encountered: {type(e).__name__}: {str(e)}")
                     raise
 
     def _execute_with_polling(self, sql: str, bindings: Optional[List[Any]]) -> None:
@@ -412,8 +444,18 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
         assert self._cursor, "Cursor not available"
 
         self._cursor.execute(sql, bindings, async_=True)
-        poll_state = self._cursor.poll()
-        state = poll_state.operationState
+        
+        # Initial poll with connection error handling
+        try:
+            poll_state = self._cursor.poll()
+            state = poll_state.operationState
+        except Exception as e:
+            # Wrap connection errors with more context
+            if self._is_connection_error(e):
+                raise ConnectionResetError(
+                    f"Connection lost during initial query poll: {type(e).__name__}: {str(e)}"
+                ) from e
+            raise
 
         start_time = time.time()
         while state in STATE_PENDING:
@@ -428,10 +470,18 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
             logger.debug("Poll status: {}, sleeping".format(state))
             time.sleep(self.poll_interval)  # CRITICAL FIX: Add sleep between polls
 
-            # Poll and let connection exceptions bubble up
-            # They will be caught and retried at the execute() method level
-            poll_state = self._cursor.poll()
-            state = poll_state.operationState
+            # Poll with enhanced connection error handling
+            # Connection errors will be caught and retried at the execute() method level
+            try:
+                poll_state = self._cursor.poll()
+                state = poll_state.operationState
+            except Exception as e:
+                # Wrap connection errors with more context for better retry handling
+                if self._is_connection_error(e):
+                    raise ConnectionResetError(
+                        f"Connection lost during query polling: {type(e).__name__}: {str(e)}"
+                    ) from e
+                raise
 
         # If an errorMessage is present, then raise a database exception
         # with that exact message. If no errorMessage is present, the
@@ -452,6 +502,57 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
             raise DbtDatabaseError("Query failed with status: {}".format(status_type))
 
         logger.debug("Poll status: {}, query complete".format(state))
+
+    @staticmethod
+    def _is_connection_error(exc: Exception) -> bool:
+        """
+        Check if an exception indicates a connection error.
+        
+        This method checks both the exception type and the error message
+        to detect various forms of connection failures that can occur
+        during query execution and polling.
+        
+        Args:
+            exc: The exception to check
+            
+        Returns:
+            True if the exception indicates a connection error, False otherwise
+        """
+        # Check if it's a known connection exception type
+        if isinstance(exc, CONNECTION_LOST_EXCEPTIONS):
+            return True
+        
+        # Check exception name and message for connection-related errors
+        exc_name = type(exc).__name__
+        exc_str = str(exc).lower()
+        
+        # Common connection error patterns
+        connection_error_patterns = [
+            "remote end closed connection",
+            "connection closed",
+            "closed connection",
+            "closed by peer",
+            "broken pipe",
+            "connection reset",
+            "remotedisconnected",
+            "connection aborted",
+            "connection refused",
+            "connection timeout",
+            "connection lost",
+            "eof occurred",
+            "transport endpoint",
+        ]
+        
+        # Check if exception name suggests connection error
+        if exc_name.lower() in ["remotedisconnected", "connectionreseterror", "brokenpipeerror"]:
+            return True
+        
+        # Check if error message contains connection error patterns
+        for pattern in connection_error_patterns:
+            if pattern in exc_str:
+                return True
+        
+        return False
 
     @classmethod
     def _fix_binding(cls, value: Any) -> Union[float, str]:
