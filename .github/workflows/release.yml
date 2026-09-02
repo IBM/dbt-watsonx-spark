@@ -109,7 +109,7 @@ jobs:
 
     steps:
       - name: "Checkout ${{ github.repository }} Commit ${{ inputs.sha }}"
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.sha }}
 
@@ -148,7 +148,7 @@ jobs:
 
     steps:
       - name: "Checkout ${{ github.repository }} Commit ${{ inputs.sha }}"
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.sha }}
 
@@ -184,7 +184,7 @@ jobs:
       branch_name: ${{ steps.mk.outputs.branch_name }}
     steps:
       - name: "Checkout target branch"
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.target_branch }}
           token: ${{ secrets.FISHTOWN_BOT_PAT }}
@@ -206,7 +206,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout temp branch"
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.create-temp-branch.outputs.branch_name }}
           token: ${{ secrets.FISHTOWN_BOT_PAT }}
@@ -270,7 +270,7 @@ jobs:
       final_sha: ${{ steps.out.outputs.final_sha }}
     steps:
       - name: "Checkout to set origin"
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: "Determine final SHA"
         id: out
         run: |
@@ -287,7 +287,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Create lightweight tag
