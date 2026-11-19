@@ -13,6 +13,8 @@ The `dbt-watsonx-spark` package contains all of the code enabling dbt to work wi
 - [Install dbt](https://docs.getdbt.com/docs/installation)
 - Read the [introduction](https://docs.getdbt.com/docs/introduction/) and [viewpoint](https://docs.getdbt.com/docs/about/viewpoint/)
 
+- Developer setup: see `docs/DEVELOPER_SETUP.md` for instructions to configure a local development environment and run tests.
+
 ### Installation
 
 To install the `dbt-watsonx-spark` plugin, use pip:
