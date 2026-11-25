@@ -410,7 +410,6 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
             try:
                 new_headers = self.authenticator._get_headers()
                 self.handle._transport.setCustomHeaders(new_headers)
-                logger.info("Successfully refreshed auth token")
             except Exception as e:
                 logger.warning(f"Failed to refresh token: {e}")
 
