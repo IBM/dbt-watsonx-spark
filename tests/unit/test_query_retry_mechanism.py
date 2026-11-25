@@ -107,8 +107,9 @@ class TestQueryRetryMechanism(unittest.TestCase):
         )
         wrapper._cursor = self.mock_cursor
         
-        # Setup time progression: 0, 5, 11 (exceeds timeout)
-        mock_time.side_effect = [0, 5, 11]
+        # Setup time progression: account for token refresh time.time() calls
+        # Calls: token_refreshed, start_time, elapsed (token), elapsed (timeout), repeat...
+        mock_time.side_effect = [0, 0, 5, 5, 11, 11]
         
         # Setup poll states: all pending
         poll_state = Mock()

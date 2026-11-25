@@ -297,18 +297,23 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
     handle: "pyodbc.Connection"
     _cursor: "Optional[pyodbc.Cursor]"
 
+    # Refresh token every 10 minutes
+    TOKEN_TIMEOUT = 10 * 60.0 
+
     def __init__(
         self,
         handle: "pyodbc.Connection",
         poll_interval: int = 5,
         query_timeout: Optional[int] = None,
         query_retries: int = 1,
+        authenticator: Optional[Any] = None,
     ) -> None:
         self.handle = handle
         self._cursor = None
         self.poll_interval = poll_interval
         self.query_timeout = query_timeout
         self.query_retries = query_retries
+        self.authenticator = authenticator
 
     def cursor(self) -> "PyhiveConnectionWrapper":
         self._cursor = self.handle.cursor()
@@ -399,6 +404,15 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
                     # Not a connection exception - re-raise immediately
                     raise
 
+    # Calls wxd api to get a new token 
+    def _refresh_token(self) -> None:
+        if self.authenticator and hasattr(self.handle, '_transport'):
+            try:
+                new_headers = self.authenticator._get_headers()
+                self.handle._transport.setCustomHeaders(new_headers)
+            except Exception as e:
+                logger.warning(f"Failed to refresh token: {e}")
+
     def _execute_with_polling(self, sql: str, bindings: Optional[List[Any]]) -> None:
         """Internal method that executes SQL and polls for completion."""
         if sql.strip().endswith(";"):
@@ -426,12 +440,23 @@ class PyhiveConnectionWrapper(SparkConnectionWrapper):
 
         assert self._cursor, "Cursor not available"
 
+        # Refresh token before executing query
+        self._refresh_token()
+        token_refreshed = time.time()
+
         self._cursor.execute(sql, bindings, async_=True)
         poll_state = self._cursor.poll()
         state = poll_state.operationState
 
         start_time = time.time()
         while state in STATE_PENDING:
+
+            # Refresh token to support long-running queries 
+            elapsed = time.time() - token_refreshed
+            if elapsed >= self.TOKEN_TIMEOUT:
+                self._refresh_token()
+                token_refreshed = time.time()
+            
             # Check for timeout if configured
             if self.query_timeout is not None:
                 elapsed = time.time() - start_time
@@ -774,6 +799,7 @@ class SparkConnectionManager(SQLConnectionManager):
                         poll_interval=creds.poll_interval,
                         query_timeout=creds.query_timeout,
                         query_retries=creds.query_retries,
+                        authenticator=authenticator,
                     )
                 elif creds.method == SparkConnectionMethod.THRIFT:
                     cls.validate_creds(creds, ["host", "port", "user", "schema"])
@@ -809,6 +835,7 @@ class SparkConnectionManager(SQLConnectionManager):
                         poll_interval=creds.poll_interval,
                         query_timeout=creds.query_timeout,
                         query_retries=creds.query_retries,
+                        authenticator=None, # Thrift doesn't use an authenticator.
                     )
                 elif creds.method == SparkConnectionMethod.ODBC:
                     if creds.cluster is not None:
